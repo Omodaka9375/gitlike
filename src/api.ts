@@ -323,6 +323,7 @@ export async function updateSettings(
     writers?: string[];
     protectedBranches?: string[];
     visibility?: 'public' | 'private';
+    importedFrom?: string;
     encryption?: EncryptionConfig;
     keyBundle?: KeyBundle;
   },
@@ -782,6 +783,10 @@ async function uploadAndCommit(
     staged,
   );
 
+  // Store upstream source in manifest for future syncing
+  const importedFrom = `${source.platform}:${source.owner}/${source.repo}@${branch}`;
+  await updateSettings(groupId, { importedFrom });
+
   onProgress(`\u2713 Imported ${staged.length} files!`, true);
   return { groupId, manifestCid };
 }
@@ -819,6 +824,187 @@ async function detectGitLabDefaultBranch(projectPath: string): Promise<string> {
   if (!res.ok) throw new Error(`GitLab API error: ${res.status}`);
   const data = (await res.json()) as { default_branch?: string };
   return data.default_branch ?? 'main';
+}
+
+// ---------------------------------------------------------------------------
+// Upstream Sync (pull updates from GitHub/GitLab)
+// ---------------------------------------------------------------------------
+
+/** Parse an importedFrom string like "github:owner/repo@branch". */
+export function parseImportedFrom(
+  value: string,
+): { platform: 'github' | 'gitlab'; owner: string; repo: string; branch: string } | null {
+  const m = value.match(/^(github|gitlab):([^/]+)\/([^@]+)@(.+)$/);
+  if (!m) return null;
+  return { platform: m[1] as 'github' | 'gitlab', owner: m[2], repo: m[3], branch: m[4] };
+}
+
+/** Walk a GitLike tree recursively and collect all file paths with sizes. */
+async function collectTreeFiles(
+  treeCid: CID,
+  prefix = '',
+): Promise<Map<string, { cid: CID; size: number }>> {
+  const tree = await fetchJSON<{
+    entries: Array<{ name: string; cid: CID; kind: string; size?: number }>;
+  }>(treeCid);
+  const files = new Map<string, { cid: CID; size: number }>();
+  for (const e of tree.entries) {
+    const p = prefix ? `${prefix}/${e.name}` : e.name;
+    if (e.kind === 'blob') {
+      files.set(p, { cid: e.cid, size: e.size ?? 0 });
+    } else {
+      const sub = await collectTreeFiles(e.cid, p);
+      for (const [k, v] of sub) files.set(k, v);
+    }
+  }
+  return files;
+}
+
+/** Sync a repo from its upstream GitHub/GitLab source. */
+export async function syncFromUpstream(
+  repoId: GroupId,
+  manifest: Manifest,
+  onProgress: ImportProgress = () => {},
+): Promise<{ commitCid: CID; added: number; updated: number; deleted: number }> {
+  if (!manifest.importedFrom) throw new Error('Repo has no upstream source.');
+  const source = parseImportedFrom(manifest.importedFrom);
+  if (!source) throw new Error(`Invalid importedFrom: ${manifest.importedFrom}`);
+
+  onProgress(`Fetching upstream tree from ${source.platform}...`);
+
+  // 1. Fetch upstream file list with sizes
+  type UpstreamBlob = { path: string; size: number };
+  let upstreamBlobs: UpstreamBlob[];
+
+  if (source.platform === 'github') {
+    const treeRes = await fetch(
+      `https://api.github.com/repos/${source.owner}/${source.repo}/git/trees/${source.branch}?recursive=1`,
+    );
+    if (!treeRes.ok) throw new Error(`GitHub API error: ${treeRes.status}`);
+    const data = (await treeRes.json()) as {
+      tree: Array<{ path: string; type: string; size?: number }>;
+    };
+    upstreamBlobs = data.tree
+      .filter((i) => i.type === 'blob')
+      .map((i) => ({ path: i.path, size: i.size ?? 0 }));
+  } else {
+    const projectPath = encodeURIComponent(`${source.owner}/${source.repo}`);
+    upstreamBlobs = [];
+    let page = 1;
+    while (true) {
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${projectPath}/repository/tree?recursive=true&ref=${encodeURIComponent(source.branch)}&per_page=100&page=${page}`,
+      );
+      if (!res.ok) throw new Error(`GitLab API error: ${res.status}`);
+      const items = (await res.json()) as Array<{ path: string; type: string }>;
+      for (const item of items) {
+        if (item.type === 'blob') upstreamBlobs.push({ path: item.path, size: 0 });
+      }
+      if (items.length < 100) break;
+      page++;
+    }
+  }
+
+  // Apply .gitignore filter
+  const upstreamPaths = upstreamBlobs.map((b) => b.path);
+  const filtered = await filterIgnored(upstreamPaths, async () => {
+    const url =
+      source.platform === 'github'
+        ? `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/.gitignore`
+        : `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${source.owner}/${source.repo}`)}/repository/files/${encodeURIComponent('.gitignore')}/raw?ref=${encodeURIComponent(source.branch)}`;
+    const raw = await fetch(url);
+    return raw.ok ? raw.text() : null;
+  });
+  const filteredSet = new Set(filtered);
+  upstreamBlobs = upstreamBlobs.filter((b) => filteredSet.has(b.path));
+  const upstreamMap = new Map(upstreamBlobs.map((b) => [b.path, b.size]));
+
+  // 2. Walk current GitLike tree
+  onProgress('Comparing with local tree...');
+  const headCid = manifest.branches[manifest.defaultBranch];
+  if (!headCid) throw new Error('No head commit found.');
+  const commit = await fetchJSON<Commit>(headCid);
+  const localFiles = await collectTreeFiles(commit.tree);
+
+  // 3. Diff
+  const toUpload: string[] = []; // new or changed
+  const toDelete: string[] = []; // removed upstream
+
+  for (const [path, upSize] of upstreamMap) {
+    const local = localFiles.get(path);
+    if (!local) {
+      toUpload.push(path); // new file
+    } else if (source.platform === 'github' && upSize > 0 && upSize !== local.size) {
+      toUpload.push(path); // size changed
+    } else if (source.platform === 'gitlab') {
+      toUpload.push(path); // GitLab doesn't return sizes in tree API, re-upload all
+    }
+  }
+  for (const path of localFiles.keys()) {
+    if (!upstreamMap.has(path)) toDelete.push(path);
+  }
+
+  if (toUpload.length === 0 && toDelete.length === 0) {
+    onProgress('\u2713 Already up to date!', true);
+    return { commitCid: headCid, added: 0, updated: 0, deleted: 0 };
+  }
+
+  onProgress(`${toUpload.length} file(s) to sync, ${toDelete.length} to remove...`);
+
+  // 4. Upload changed/new files
+  const rawUrlFn =
+    source.platform === 'github'
+      ? (path: string) =>
+          `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/${path}`
+      : (path: string) => {
+          const pp = encodeURIComponent(`${source.owner}/${source.repo}`);
+          return `https://gitlab.com/api/v4/projects/${pp}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(source.branch)}`;
+        };
+
+  const staged: Array<{ path: string; cid: CID; size: number; deleted?: boolean }> = [];
+  const limit = createConcurrencyLimiter(IMPORT_CONCURRENCY);
+  let uploaded = 0;
+
+  const tasks = toUpload.map((filePath) =>
+    limit(async () => {
+      const rawRes = await fetch(rawUrlFn(filePath));
+      if (!rawRes.ok) return;
+      const content = await rawRes.arrayBuffer();
+      const file = new File([content], filePath.split('/').pop() ?? 'file', {
+        type: 'application/octet-stream',
+      });
+      const { cid, size } = await uploadFile(repoId, file);
+      staged.push({ path: filePath, cid, size });
+      uploaded++;
+      if (uploaded % 10 === 0 || uploaded === toUpload.length) {
+        onProgress(`Uploading ${uploaded}/${toUpload.length}: ${filePath}`);
+      }
+    }),
+  );
+  await Promise.all(tasks);
+
+  // Mark deleted files
+  for (const path of toDelete) {
+    const local = localFiles.get(path)!;
+    staged.push({ path, cid: local.cid, size: 0, deleted: true });
+  }
+
+  // 5. Commit
+  onProgress('Creating sync commit...');
+  const added = toUpload.filter((p) => !localFiles.has(p)).length;
+  const updated = toUpload.length - added;
+  const { commitCid: newCommitCid } = await commitFiles(
+    repoId,
+    manifest.defaultBranch,
+    `Sync from ${source.platform}: ${source.owner}/${source.repo}@${source.branch}`,
+    staged,
+  );
+
+  onProgress(
+    `\u2713 Synced! ${added} added, ${updated} updated, ${toDelete.length} deleted.`,
+    true,
+  );
+  return { commitCid: newCommitCid, added, updated, deleted: toDelete.length };
 }
 
 // ---------------------------------------------------------------------------

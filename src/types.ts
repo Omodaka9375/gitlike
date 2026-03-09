@@ -133,6 +133,8 @@ type Manifest = {
   encryption?: EncryptionConfig;
   /** Wrapped repo keys per epoch for authorized addresses. */
   keyBundle?: KeyBundle;
+  /** Upstream source for imported repos (e.g. "github:owner/repo@branch"). */
+  importedFrom?: string;
 };
 
 /** Signed delegation granting an agent scoped access. */

@@ -512,6 +512,7 @@ export type UpdateSettingsInput = {
   writers?: string[];
   protectedBranches?: string[];
   visibility?: 'public' | 'private';
+  importedFrom?: string;
   encryption?: {
     enabled: boolean;
     algorithm: 'AES-256-GCM';
@@ -557,6 +558,7 @@ export async function executeUpdateSettings(
       ...manifest.acl,
       writers: input.writers ? (input.writers as Address[]) : manifest.acl.writers,
     },
+    importedFrom: input.importedFrom ?? manifest.importedFrom,
     encryption: input.encryption ?? manifest.encryption,
     keyBundle: input.keyBundle
       ? ({ ...manifest.keyBundle, ...input.keyBundle } as Manifest['keyBundle'])

@@ -39,6 +39,8 @@ import {
   revokeDelegation,
   fetchRepoProjects,
   slugify,
+  syncFromUpstream,
+  parseImportedFrom,
 } from '../api.js';
 import type { CommitEntry } from '../api.js';
 import { connectedAddress } from '../wallet.js';
@@ -484,6 +486,17 @@ function renderActionBar(route: Route, manifest?: Manifest): HTMLElement {
     }),
   );
 
+  // Sync from upstream (imported repos only)
+  if (manifest && detectUpstreamSource(manifest)) {
+    children.push(
+      el('button', {
+        cls: 'action-btn',
+        text: '\uD83D\uDD04 Sync Upstream',
+        onclick: () => handleSyncUpstream(route, manifest),
+      }),
+    );
+  }
+
   // Owner-only actions
   if (manifest && address) {
     const lower = address.toLowerCase();
@@ -517,6 +530,73 @@ function renderActionBar(route: Route, manifest?: Manifest): HTMLElement {
   }
 
   return el('div', { cls: 'action-bar', children });
+}
+
+// ---------------------------------------------------------------------------
+// Sync from Upstream
+// ---------------------------------------------------------------------------
+
+/** Detect upstream source from importedFrom field or legacy description. */
+function detectUpstreamSource(
+  manifest: Manifest,
+): { platform: 'github' | 'gitlab'; owner: string; repo: string; branch: string } | null {
+  if (manifest.importedFrom) return parseImportedFrom(manifest.importedFrom);
+  // Legacy: parse from description like "Imported from github:Owner/Repo"
+  const m = manifest.description.match(
+    /Imported from (github|gitlab):([^/]+)\/([^@\s]+)(?:@(\S+))?/i,
+  );
+  if (!m) return null;
+  return {
+    platform: m[1].toLowerCase() as 'github' | 'gitlab',
+    owner: m[2],
+    repo: m[3],
+    branch: m[4] || 'main',
+  };
+}
+
+async function handleSyncUpstream(route: Route, manifest: Manifest): Promise<void> {
+  let source = detectUpstreamSource(manifest);
+  if (!source) return;
+
+  const ok = await showConfirm(
+    `Sync from ${source.platform}:${source.owner}/${source.repo}@${source.branch}?\n\nThis will pull the latest files and create a new commit.`,
+  );
+  if (!ok) return;
+
+  // Show a modal with progress
+  document.getElementById('sync-modal')?.remove();
+  const overlay = el('div', { cls: 'modal-overlay', attrs: { id: 'sync-modal' } });
+  const status = el('div', { cls: 'modal-status', text: 'Starting sync...' });
+  const modal = el('div', {
+    cls: 'modal',
+    children: [el('h2', { text: '\uD83D\uDD04 Syncing from Upstream' }), status],
+  });
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  try {
+    // Backfill importedFrom for legacy repos so future syncs are faster
+    if (!manifest.importedFrom) {
+      const importedFrom = `${source.platform}:${source.owner}/${source.repo}@${source.branch}`;
+      manifest.importedFrom = importedFrom;
+      updateSettings(route.groupId, { importedFrom }).catch(() => {});
+    }
+    await syncFromUpstream(route.groupId, manifest, (msg, done) => {
+      status.textContent = msg;
+      status.className = done ? 'modal-status success' : 'modal-status';
+    });
+    // Auto-close after a short delay and refresh
+    setTimeout(() => {
+      overlay.remove();
+      refreshRoute();
+    }, 1500);
+  } catch (err) {
+    status.textContent = `Error: ${friendlyError(err)}`;
+    status.className = 'modal-status error';
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

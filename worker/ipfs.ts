@@ -75,6 +75,7 @@ type Manifest = {
       createdAt: string;
     }
   >;
+  importedFrom?: string;
 };
 type Delegation = {
   type: 'delegation';

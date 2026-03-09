@@ -157,6 +157,53 @@ export function diffLines(oldText: string, newText: string): LineDiff[] {
 // Render diff
 // ---------------------------------------------------------------------------
 
+/** Extensions treated as binary — skip content display. */
+const BINARY_EXTS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.bmp',
+  '.webp',
+  '.svg',
+  '.ico',
+  '.icns',
+  '.mp4',
+  '.webm',
+  '.mov',
+  '.avi',
+  '.mkv',
+  '.flv',
+  '.wmv',
+  '.mp3',
+  '.wav',
+  '.ogg',
+  '.flac',
+  '.aac',
+  '.zip',
+  '.tar',
+  '.gz',
+  '.bz2',
+  '.7z',
+  '.rar',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.eot',
+  '.pdf',
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib',
+]);
+
+/** Check if a file path has a binary extension. */
+function isBinaryPath(path: string): boolean {
+  const dot = path.lastIndexOf('.');
+  return dot !== -1 && BINARY_EXTS.has(path.slice(dot).toLowerCase());
+}
+
 /** Render a list of file changes as a diff view. */
 export async function renderDiffView(changes: FileChange[]): Promise<HTMLElement> {
   if (changes.length === 0) {
@@ -192,8 +239,12 @@ export async function renderDiffView(changes: FileChange[]): Promise<HTMLElement
 
     const fileBlock = el('div', { cls: 'diff-file', children: [header] });
 
-    // Show line diff for modified text files
-    if (change.kind === 'modified' && change.oldCid && change.newCid) {
+    // Skip content display for binary files
+    if (isBinaryPath(change.path)) {
+      fileBlock.appendChild(
+        el('div', { cls: 'diff-binary-notice', text: 'Binary file — content not shown.' }),
+      );
+    } else if (change.kind === 'modified' && change.oldCid && change.newCid) {
       try {
         const [oldContent, newContent] = await Promise.all([
           fetchText(change.oldCid),
