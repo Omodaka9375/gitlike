@@ -61,6 +61,9 @@ function gwUrl(env: Env, cid: string): string {
   return `https://${host}/ipfs/${cid}`;
 }
 
+/** Per-request tree cache to avoid duplicate IPFS fetches. */
+type TreeCache = Map<string, Tree>;
+
 /** Fetch JSON from IPFS with edge caching. */
 async function fetchJSON<T>(env: Env, cid: string, cacheTtl = 300): Promise<T> {
   const headers: Record<string, string> = {};
@@ -68,6 +71,15 @@ async function fetchJSON<T>(env: Env, cid: string, cacheTtl = 300): Promise<T> {
   const res = await fetch(gwUrl(env, cid), { headers, cf: { cacheTtl } } as RequestInit);
   if (!res.ok) throw new Error(`IPFS fetch failed: ${cid} (${res.status})`);
   return res.json() as Promise<T>;
+}
+
+/** Fetch a tree with per-request caching. */
+async function fetchTree(env: Env, cid: string, cache: TreeCache): Promise<Tree> {
+  const hit = cache.get(cid);
+  if (hit) return hit;
+  const tree = await fetchJSON<Tree>(env, cid);
+  cache.set(cid, tree);
+  return tree;
 }
 
 /** Fetch raw bytes from IPFS. Returns the Response directly for streaming. */
@@ -85,12 +97,17 @@ async function fetchRaw(env: Env, cid: string): Promise<Response> {
  * Walk a tree to resolve a file path like "assets/css/style.css".
  * Returns the blob CID or null if not found.
  */
-async function resolveFile(env: Env, treeCid: string, filePath: string): Promise<string | null> {
+async function resolveFile(
+  env: Env,
+  treeCid: string,
+  filePath: string,
+  cache: TreeCache,
+): Promise<string | null> {
   const segments = filePath.split('/').filter(Boolean);
   let currentTreeCid = treeCid;
 
   for (let i = 0; i < segments.length; i++) {
-    const tree = await fetchJSON<Tree>(env, currentTreeCid);
+    const tree = await fetchTree(env, currentTreeCid, cache);
     const seg = segments[i];
     const entry = tree.entries.find((e) => e.name === seg);
     if (!entry) return null;
@@ -106,6 +123,11 @@ async function resolveFile(env: Env, treeCid: string, filePath: string): Promise
   }
 
   return null;
+}
+
+/** Check if a URL path contains traversal segments. */
+function hasTraversal(parts: string[]): boolean {
+  return parts.some((p) => p === '..' || p === '.');
 }
 
 // ---------------------------------------------------------------------------
@@ -190,6 +212,7 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.split('/').filter(Boolean);
     const pagesHost = env.PAGES_HOST || DEFAULT_PAGES_HOST;
+    const isHead = request.method === 'HEAD';
 
     // CORS preflight
     if (request.method === 'OPTIONS') {
@@ -203,8 +226,13 @@ export default {
     }
 
     // Only GET / HEAD
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
+    if (request.method !== 'GET' && !isHead) {
       return new Response('Method Not Allowed', { status: 405 });
+    }
+
+    // Path traversal guard
+    if (hasTraversal(parts)) {
+      return new Response('Bad Request', { status: 400 });
     }
 
     // Landing page
@@ -216,6 +244,7 @@ export default {
 
     const slug = parts[0].toLowerCase();
     const filePath = parts.slice(1).join('/') || 'index.html';
+    const cache: TreeCache = new Map();
 
     try {
       // 1. Resolve slug → groupId
@@ -238,6 +267,8 @@ export default {
         return htmlResponse(notFoundHtml(slug), 404);
       }
 
+      const isSpa = !!manifest.pages.spa;
+
       // 4. Resolve branch → HEAD commit → tree
       const branch = manifest.pages.branch || manifest.defaultBranch;
       const commitCid = manifest.branches[branch];
@@ -251,7 +282,7 @@ export default {
       // 4b. If a pages folder is configured, descend into it
       const folder = manifest.pages.folder;
       if (folder) {
-        const folderCid = await resolveSubtree(env, treeCid, folder);
+        const folderCid = await resolveSubtree(env, treeCid, folder, cache);
         if (!folderCid) {
           return htmlResponse(notFoundHtml(slug), 404);
         }
@@ -259,73 +290,48 @@ export default {
       }
 
       // 5. Resolve file in tree
-      let blobCid = await resolveFile(env, treeCid, filePath);
+      let blobCid = await resolveFile(env, treeCid, filePath, cache);
+      let servePath = filePath;
 
       // Fallback: clean URL — try path.html (e.g. /about → about.html)
       if (!blobCid && !hasExtension(filePath)) {
-        blobCid = await resolveFile(env, treeCid, filePath + '.html');
+        blobCid = await resolveFile(env, treeCid, filePath + '.html', cache);
+        if (blobCid) servePath = filePath + '.html';
       }
 
       // Fallback: try path/index.html (directory index)
       if (!blobCid && !filePath.endsWith('/index.html')) {
-        blobCid = await resolveFile(env, treeCid, filePath + '/index.html');
+        blobCid = await resolveFile(env, treeCid, filePath + '/index.html', cache);
+        if (blobCid) servePath = filePath + '/index.html';
       }
 
-      // Fallback: custom 404.html
+      // SPA fallback: serve root index.html for extensionless paths
+      if (!blobCid && isSpa && !hasExtension(filePath)) {
+        blobCid = await resolveFile(env, treeCid, 'index.html', cache);
+        if (blobCid) servePath = 'index.html';
+      }
+
+      // 404 handling
       if (!blobCid) {
-        const custom404 = await resolveFile(env, treeCid, '404.html');
+        // Try custom 404.html
+        const custom404 = await resolveFile(env, treeCid, '404.html', cache);
         if (custom404) {
-          const raw = await fetchRaw(env, custom404);
-          return new Response(raw.body, {
-            status: 404,
-            headers: {
-              'Content-Type': 'text/html; charset=utf-8',
-              'Cache-Control': 'public, max-age=60',
-              'Access-Control-Allow-Origin': '*',
-              ...SECURITY_HEADERS,
-            },
-          });
+          return serveBlob(env, custom404, 'text/html; charset=utf-8', 404, custom404, isHead);
         }
-
-        // Index fallback: serve root index.html for extensionless paths
-        if (!hasExtension(filePath)) {
-          const indexCid = await resolveFile(env, treeCid, 'index.html');
-          if (indexCid) {
-            const raw = await fetchRaw(env, indexCid);
-            if (raw.ok) {
-              return new Response(raw.body, {
-                status: 200,
-                headers: {
-                  'Content-Type': 'text/html; charset=utf-8',
-                  'Cache-Control': 'public, max-age=60',
-                  'Access-Control-Allow-Origin': '*',
-                  ...SECURITY_HEADERS,
-                },
-              });
-            }
-          }
-        }
-
         return htmlResponse(notFoundHtml(slug), 404);
       }
 
-      // 6. Serve the file
-      const raw = await fetchRaw(env, blobCid);
-      if (!raw.ok) {
-        return new Response('File fetch failed', { status: 502 });
+      // 6. ETag / conditional request
+      const etag = `"${blobCid}"`;
+      const ifNoneMatch = request.headers.get('If-None-Match');
+      if (ifNoneMatch === etag) {
+        return new Response(null, { status: 304, headers: { ETag: etag } });
       }
 
-      const ct = mimeType(filePath);
+      // 7. Serve the file
+      const ct = mimeType(servePath);
       const isHtml = ct.startsWith('text/html');
-      return new Response(raw.body, {
-        status: 200,
-        headers: {
-          'Content-Type': ct,
-          'Cache-Control': isHtml ? 'public, max-age=60' : 'public, max-age=31536000, immutable',
-          'Access-Control-Allow-Origin': '*',
-          ...(isHtml ? SECURITY_HEADERS : { 'X-Content-Type-Options': 'nosniff' }),
-        },
-      });
+      return serveBlob(env, blobCid, ct, 200, blobCid, isHead, isHtml);
     } catch (err) {
       console.error('Pages error:', err);
       return new Response('Internal Server Error', { status: 500 });
@@ -341,11 +347,16 @@ export default {
  * Descend into a subfolder within a tree.
  * Returns the sub-tree CID or null if the folder doesn't exist.
  */
-async function resolveSubtree(env: Env, treeCid: string, folder: string): Promise<string | null> {
+async function resolveSubtree(
+  env: Env,
+  treeCid: string,
+  folder: string,
+  cache: TreeCache,
+): Promise<string | null> {
   const segments = folder.split('/').filter(Boolean);
   let current = treeCid;
   for (const seg of segments) {
-    const tree = await fetchJSON<Tree>(env, current);
+    const tree = await fetchTree(env, current, cache);
     const entry = tree.entries.find((e) => e.name === seg && e.kind === 'tree');
     if (!entry) return null;
     current = entry.cid;
@@ -357,6 +368,34 @@ async function resolveSubtree(env: Env, treeCid: string, folder: string): Promis
 function hasExtension(path: string): boolean {
   const last = path.split('/').pop() ?? '';
   return last.includes('.');
+}
+
+/** Serve a blob from IPFS with proper headers. */
+async function serveBlob(
+  env: Env,
+  cid: string,
+  contentType: string,
+  status: number,
+  etagCid: string,
+  headOnly: boolean,
+  isHtml = false,
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Cache-Control':
+      isHtml || status === 404 ? 'public, max-age=60' : 'public, max-age=31536000, immutable',
+    'Access-Control-Allow-Origin': '*',
+    ETag: `"${etagCid}"`,
+    ...(isHtml || status === 404 ? SECURITY_HEADERS : { 'X-Content-Type-Options': 'nosniff' }),
+  };
+
+  if (headOnly) {
+    return new Response(null, { status, headers });
+  }
+
+  const raw = await fetchRaw(env, cid);
+  if (!raw.ok) return new Response('File fetch failed', { status: 502 });
+  return new Response(raw.body, { status, headers });
 }
 
 /** Build an HTML response with security headers. */

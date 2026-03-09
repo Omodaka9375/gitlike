@@ -12,14 +12,25 @@ export async function browserLogin(): Promise<void> {
   const base = config.apiUrl || 'https://gitlike.dev';
 
   return new Promise((resolve, reject) => {
+    const allowedOrigin = new URL(base).origin;
+
     const server = http.createServer((req, res) => {
+      const origin = req.headers.origin ?? '';
+      if (origin && origin !== allowedOrigin) {
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
+
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': allowedOrigin,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+
       // CORS preflight
       if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        });
+        res.writeHead(204, corsHeaders);
         res.end();
         return;
       }
@@ -33,17 +44,14 @@ export async function browserLogin(): Promise<void> {
           try {
             const data = JSON.parse(body) as { token?: string; address?: string };
             if (!data.token || !data.address) {
-              res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+              res.writeHead(400, corsHeaders);
               res.end('Missing token or address');
               return;
             }
 
             writeGlobalConfig({ ...config, token: data.token, address: data.address });
 
-            res.writeHead(200, {
-              'Content-Type': 'text/html',
-              'Access-Control-Allow-Origin': '*',
-            });
+            res.writeHead(200, { 'Content-Type': 'text/html', ...corsHeaders });
             res.end('OK');
 
             console.log(`\n✓ Authenticated as ${data.address}`);
@@ -52,7 +60,7 @@ export async function browserLogin(): Promise<void> {
             server.close();
             resolve();
           } catch (err) {
-            res.writeHead(400, { 'Access-Control-Allow-Origin': '*' });
+            res.writeHead(400, corsHeaders);
             res.end('Invalid request');
             server.close();
             reject(err);
