@@ -157,6 +157,7 @@ app.put('/api/platform/settings', requireAdmin, async (c) => {
     platformName: body.platformName ?? current.platformName,
     platformDescription: body.platformDescription ?? current.platformDescription,
     retentionDepth: body.retentionDepth ?? current.retentionDepth,
+    pinnedRepo: typeof body.pinnedRepo === 'string' ? body.pinnedRepo.trim() : current.pinnedRepo,
   };
 
   await putPlatformSettings(c.env.SESSIONS, updated);

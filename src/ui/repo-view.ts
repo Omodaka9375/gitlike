@@ -1001,6 +1001,19 @@ export function renderRepoHeader(manifest: Manifest, route: Route): HTMLElement 
     titleChildren.push(el('span', { cls: 'badge badge-private', text: '\uD83D\uDD12 Private' }));
   }
 
+  const groupIdEl = el('span', {
+    cls: 'repo-group-id',
+    text: shortCid(route.groupId, 10),
+    attrs: { title: `Click to copy: ${route.groupId}` },
+    onclick: () => {
+      navigator.clipboard.writeText(route.groupId);
+      groupIdEl.textContent = 'Copied!';
+      setTimeout(() => {
+        groupIdEl.textContent = shortCid(route.groupId, 10);
+      }, 1200);
+    },
+  });
+
   const shareBtn = el('button', {
     cls: 'topbar-icon-btn share-btn',
     text: '\uD83D\uDD17',
@@ -1061,6 +1074,7 @@ export function renderRepoHeader(manifest: Manifest, route: Route): HTMLElement 
         cls: 'repo-title-row',
         children: [
           el('h1', { children: titleChildren }),
+          groupIdEl,
           starBtn,
           shareBtn,
           el('span', { cls: 'repo-desc', text: manifest.description }),

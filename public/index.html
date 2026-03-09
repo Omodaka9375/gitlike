@@ -216,11 +216,10 @@
       pointer-events: none;
     }
     .site-header { text-align: center; padding: 5rem 1.5rem 3.5rem; position: relative; z-index: 1; }
-    .hero-title {
-      font-size: 3.75rem; font-weight: 800; letter-spacing: -0.05em; line-height: 1.05;
-      background: var(--gradient-text); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text; margin-bottom: 1rem;
+    .hero-logo {
+      max-width: 320px; height: auto;
       filter: drop-shadow(0 0 30px rgba(88,166,255,0.15));
+      user-select: none;
     }
     .subtitle {
       color: var(--text-secondary); font-size: 1.15rem; max-width: 540px; margin: 0 auto;
@@ -399,14 +398,14 @@
       height: 1.75rem;
       padding: 0 0.45rem;
       border-radius: var(--radius-full);
-      background: rgb(9 12 16);
-      color: #ecefed;
-      border: 1px solid #090c10;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
       cursor: pointer;
       transition: all var(--transition);
       line-height: 1;
     }
-    .create-menu-trigger:hover { background: rgb(9 12 16); border-color: #090c10; color: #949494;}
+    .create-menu-trigger:hover { background: var(--surface); border-color: var(--text-muted); color: var(--text); }
     .create-menu-trigger svg { display: block; }
     .create-menu-chevron { font-size: 0.55rem; opacity: 0.7; }
     .create-menu {
@@ -528,6 +527,7 @@
     }
     .repo-card-owner .addr-avatar { width: 14px; height: 14px; }
     .repo-card-header { display: flex; justify-content: space-between; align-items: center; }
+    .repo-card-name-group { display: flex; align-items: center; gap: 0.5rem; }
     .repo-card-name { font-weight: 700; font-size: 0.92rem; }
     .repo-card-branches {
       font-size: 0.72rem; color: var(--text-muted);
@@ -576,6 +576,14 @@
     .repo-title-row h1 a { color: var(--text); }
     .repo-title-row h1 a:hover { color: var(--accent); }
     .repo-desc { color: var(--text-muted); font-size: 0.88rem; margin-top:10px;}
+    .repo-group-id {
+      font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted);
+      opacity: 0.55; cursor: pointer; padding: 0.15rem 0.45rem;
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius-sm); transition: all var(--transition);
+      margin-top: 11px;
+    }
+    .repo-group-id:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
     .repo-owner-pill {
       display: inline-flex; align-items: center; gap: 0.4rem;
       font-size: 0.8rem; color: var(--text-secondary); text-decoration: none;
@@ -747,6 +755,7 @@
       border: 1px solid rgba(255,255,255,0.04);
       margin-left: 15px;
     }
+    .badge-pinned { background: var(--accent-dim); color: var(--accent); border-color: rgba(88,166,255,0.15); }
     .badge-private { background: var(--yellow-dim); color: var(--yellow); border-color: rgba(227,179,65,0.15); }
     .agent-badge { background: var(--purple-dim); color: var(--purple); }
     .verified-badge { background: var(--green-dim); color: var(--green); }
@@ -1414,7 +1423,7 @@
     [data-theme="light"] .project-card:hover { background: rgba(241,245,249,0.8); }
 
     @media (max-width: 768px) {
-      .hero-title { font-size: 2.5rem; }
+      .hero-logo { max-width: 240px; }
       .subtitle { font-size: 1rem; }
       .site-header { padding: 3.5rem 1rem 2rem; }
       .home-grid { grid-template-columns: 1fr; gap: 1rem; padding: 0 1rem; }

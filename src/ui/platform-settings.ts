@@ -14,6 +14,7 @@ import {
   removePeer,
   syncPeers,
 } from '../api.js';
+import { refreshRoute } from './router.js';
 
 /** Open the platform settings modal. */
 export function showPlatformSettingsModal(): void {
@@ -64,6 +65,15 @@ export function showPlatformSettingsModal(): void {
       min: '0',
       step: '1',
       placeholder: '50',
+    },
+  }) as HTMLInputElement;
+
+  const pinnedInput = el('input', {
+    attrs: {
+      id: 'platform-pinned',
+      type: 'text',
+      placeholder: 'Group ID of repo to pin',
+      spellcheck: 'false',
     },
   }) as HTMLInputElement;
 
@@ -183,6 +193,17 @@ export function showPlatformSettingsModal(): void {
                       descInput,
                     ],
                   }),
+                  el('div', {
+                    cls: 'settings-field',
+                    children: [
+                      el('label', { text: 'Pinned repo', attrs: { for: 'platform-pinned' } }),
+                      el('p', {
+                        cls: 'field-hint',
+                        text: 'Group ID of a repo to pin at the top of the homepage. Leave empty for none.',
+                      }),
+                      pinnedInput,
+                    ],
+                  }),
                 ],
               }),
             ],
@@ -268,7 +289,7 @@ export function showPlatformSettingsModal(): void {
   document.body.appendChild(overlay);
 
   // Load current settings
-  loadSettings(openToggle, writersArea, nameInput, descInput, retentionInput, status);
+  loadSettings(openToggle, writersArea, nameInput, descInput, retentionInput, pinnedInput, status);
   loadUsage(usageSection);
   loadStorageProviderStatus();
 }
@@ -300,6 +321,7 @@ async function loadSettings(
   name: HTMLInputElement,
   desc: HTMLInputElement,
   retention: HTMLInputElement,
+  pinned: HTMLInputElement,
   status: HTMLElement,
 ): Promise<void> {
   try {
@@ -312,6 +334,7 @@ async function loadSettings(
     name.value = settings.platformName;
     desc.value = settings.platformDescription;
     retention.value = String(settings.retentionDepth ?? 50);
+    pinned.value = settings.pinnedRepo ?? '';
     status.textContent = '';
   } catch (err) {
     status.textContent = `Failed to load: ${friendlyError(err)}`;
@@ -351,6 +374,7 @@ async function handleSave(): Promise<void> {
   const nameInput = document.getElementById('platform-name') as HTMLInputElement;
   const descInput = document.getElementById('platform-desc') as HTMLInputElement;
   const retentionInput = document.getElementById('platform-retention') as HTMLInputElement;
+  const pinnedInput = document.getElementById('platform-pinned') as HTMLInputElement;
 
   if (!toggle || !writersArea) return;
 
@@ -374,6 +398,7 @@ async function handleSave(): Promise<void> {
       platformName: nameInput?.value.trim() ?? '',
       platformDescription: descInput?.value.trim() ?? '',
       retentionDepth: Number.isFinite(depth) && depth >= 0 ? depth : 50,
+      pinnedRepo: pinnedInput?.value.trim() ?? '',
     });
 
     if (status) {
@@ -381,14 +406,11 @@ async function handleSave(): Promise<void> {
       status.className = 'modal-status success';
     }
 
-    // Refresh wallet bar to reflect new creation policy
+    // Refresh wallet bar + current page to reflect changes
     setTimeout(() => {
       document.getElementById('platform-settings-modal')?.remove();
-      const existing = document.querySelector('.wallet-bar');
-      if (existing?.parentElement) {
-        // Trigger re-render by dispatching a custom event
-        window.dispatchEvent(new CustomEvent('platform-settings-changed'));
-      }
+      window.dispatchEvent(new CustomEvent('platform-settings-changed'));
+      refreshRoute();
     }, 800);
   } catch (err) {
     if (status) {

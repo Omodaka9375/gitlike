@@ -999,6 +999,7 @@ export type PlatformSettings = {
   platformName: string;
   platformDescription: string;
   retentionDepth: number;
+  pinnedRepo: string;
 };
 
 /** Caller's role on this platform instance. */

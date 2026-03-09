@@ -28,6 +28,8 @@ export type PlatformSettings = {
   platformDescription: string;
   /** Max commits per branch that keep full tree/blob data. 0 = unlimited. */
   retentionDepth: number;
+  /** GroupId of a repo pinned to the top of the homepage. Empty = none. */
+  pinnedRepo: string;
 };
 
 /** Caller's role on this platform instance. */
@@ -43,6 +45,7 @@ const DEFAULT_SETTINGS: PlatformSettings = {
   platformName: '',
   platformDescription: '',
   retentionDepth: 50,
+  pinnedRepo: '',
 };
 
 // ---------------------------------------------------------------------------
@@ -61,6 +64,7 @@ export async function getPlatformSettings(kv: KVNamespace): Promise<PlatformSett
       platformName: parsed.platformName ?? DEFAULT_SETTINGS.platformName,
       platformDescription: parsed.platformDescription ?? DEFAULT_SETTINGS.platformDescription,
       retentionDepth: parsed.retentionDepth ?? DEFAULT_SETTINGS.retentionDepth,
+      pinnedRepo: parsed.pinnedRepo ?? DEFAULT_SETTINGS.pinnedRepo,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

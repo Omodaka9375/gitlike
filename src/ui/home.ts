@@ -16,6 +16,7 @@ import {
   getStarredRepos,
   fetchManifest,
   fetchAlias,
+  fetchPlatformSettings,
 } from '../api.js';
 import type { RepoSummary } from '../api.js';
 import { connectedAddress } from '../wallet.js';
@@ -52,7 +53,10 @@ export function renderHome(root: HTMLElement): void {
       el('header', {
         cls: 'site-header',
         children: [
-          el('h1', { cls: 'hero-title', text: 'GitLike' }),
+          el('img', {
+            cls: 'hero-logo',
+            attrs: { src: '/logo.png', alt: 'GitLike', draggable: 'false' },
+          }),
           el('p', {
             cls: 'subtitle',
             text: 'Decentralized version control powered by IPFS & SIWE',
@@ -289,7 +293,11 @@ async function fetchRepoTimestamp(repo: {
 /** Fetch and render the list of repositories with pagination. */
 async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Promise<void> {
   try {
-    const { repos, nextOffset, total } = await listRepos(10);
+    const [{ repos, nextOffset, total }, platformResult] = await Promise.all([
+      listRepos(10),
+      fetchPlatformSettings().catch(() => null),
+    ]);
+    const pinnedRepoId = platformResult?.settings.pinnedRepo || '';
 
     // Update hero stat counter
     if (heroStats && total != null) {
@@ -309,7 +317,19 @@ async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Pr
       return;
     }
 
-    // Fetch head commit timestamps and sort by latest
+    // If the pinned repo isn't in the initial batch, fetch it separately
+    if (pinnedRepoId && !repos.some((r) => r.groupId === pinnedRepoId)) {
+      try {
+        const m = await fetchManifest(pinnedRepoId);
+        if (m) {
+          repos.unshift({ groupId: pinnedRepoId, groupName: m.name, manifest: m });
+        }
+      } catch {
+        /* pinned repo may have been deleted */
+      }
+    }
+
+    // Fetch head commit timestamps and sort by latest, pinned repo always first
     const timestamps = new Map<string, string>();
     await Promise.all(
       repos.map(async (repo) => {
@@ -318,6 +338,10 @@ async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Pr
       }),
     );
     repos.sort((a, b) => {
+      if (pinnedRepoId) {
+        if (a.groupId === pinnedRepoId) return -1;
+        if (b.groupId === pinnedRepoId) return 1;
+      }
       const ta = timestamps.get(a.groupId) ?? '';
       const tb = timestamps.get(b.groupId) ?? '';
       return tb.localeCompare(ta);
@@ -326,7 +350,10 @@ async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Pr
     // All loaded repos (grows as user clicks "Load more")
     let allRepos = [...repos];
 
-    const listEl = el('div', { cls: 'repo-list', children: repoCards(repos, timestamps) });
+    const listEl = el('div', {
+      cls: 'repo-list',
+      children: repoCards(repos, timestamps, pinnedRepoId),
+    });
 
     // Load stars + README previews in background
     loadRepoCardStars(repos, listEl);
@@ -334,7 +361,7 @@ async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Pr
 
     const loadMoreContainer = el('div', { cls: 'load-more-container' });
     if (nextOffset !== null) {
-      appendLoadMore(loadMoreContainer, listEl, nextOffset, allRepos);
+      appendLoadMore(loadMoreContainer, listEl, nextOffset, allRepos, pinnedRepoId);
     }
 
     const searchInput = el('input', {
@@ -347,7 +374,7 @@ async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Pr
       if (!q) {
         // Restore full list
         listEl.innerHTML = '';
-        for (const card of repoCards(allRepos, timestamps)) listEl.appendChild(card);
+        for (const card of repoCards(allRepos, timestamps, pinnedRepoId)) listEl.appendChild(card);
         loadRepoCardStars(allRepos, listEl);
         loadReadmePreviews(allRepos, listEl);
         loadMoreContainer.style.display = '';
@@ -389,6 +416,7 @@ async function loadRepoList(container: HTMLElement, heroStats?: HTMLElement): Pr
 export function repoCards(
   repos: Array<{ groupId: string; groupName: string; manifest: Manifest | null }>,
   timestamps?: Map<string, string>,
+  pinnedRepoId?: string,
 ): HTMLElement[] {
   return repos.map((repo) => {
     const name = repo.manifest?.name ?? repo.groupName;
@@ -396,11 +424,18 @@ export function repoCards(
     const branchCount = repo.manifest ? Object.keys(repo.manifest.branches).length : 0;
     const defaultBranch = repo.manifest?.defaultBranch || 'main';
     const isPrivate = repo.manifest?.visibility === 'private';
+    const isPinned = pinnedRepoId ? repo.groupId === pinnedRepoId : false;
 
-    const headerChildren: HTMLElement[] = [el('span', { cls: 'repo-card-name', text: name })];
-    if (isPrivate) {
-      headerChildren.push(el('span', { cls: 'badge badge-private', text: '\uD83D\uDD12 Private' }));
+    const nameGroup: HTMLElement[] = [el('span', { cls: 'repo-card-name', text: name })];
+    if (isPinned) {
+      nameGroup.push(el('span', { cls: 'badge badge-pinned', text: '\uD83D\uDCCC Pinned' }));
     }
+    if (isPrivate) {
+      nameGroup.push(el('span', { cls: 'badge badge-private', text: '\uD83D\uDD12 Private' }));
+    }
+    const headerChildren: HTMLElement[] = [
+      el('div', { cls: 'repo-card-name-group', children: nameGroup }),
+    ];
     if (branchCount > 0) {
       headerChildren.push(
         el('span', {
@@ -687,6 +722,7 @@ function appendLoadMore(
   listEl: HTMLElement,
   offset: number,
   allRepos: Array<{ groupId: string; groupName: string; manifest: Manifest | null }>,
+  pinnedRepoId?: string,
 ): void {
   const btn = el('button', {
     cls: 'wallet-btn load-more-btn',
@@ -696,13 +732,33 @@ function appendLoadMore(
       (btn as HTMLButtonElement).disabled = true;
       try {
         const { repos, nextOffset } = await listRepos(20, offset);
-        allRepos.push(...repos);
-        for (const card of repoCards(repos)) {
+
+        // Filter out the pinned repo if it was already prepended
+        const filtered = pinnedRepoId ? repos.filter((r) => r.groupId !== pinnedRepoId) : repos;
+
+        // Fetch timestamps and sort by latest before appending
+        const timestamps = new Map<string, string>();
+        await Promise.all(
+          filtered.map(async (repo) => {
+            const ts = await fetchRepoTimestamp(repo);
+            if (ts) timestamps.set(repo.groupId, ts);
+          }),
+        );
+        filtered.sort((a, b) => {
+          const ta = timestamps.get(a.groupId) ?? '';
+          const tb = timestamps.get(b.groupId) ?? '';
+          return tb.localeCompare(ta);
+        });
+
+        allRepos.push(...filtered);
+        for (const card of repoCards(filtered, timestamps, pinnedRepoId)) {
           listEl.appendChild(card);
         }
+        loadRepoCardStars(filtered, listEl);
+        loadReadmePreviews(filtered, listEl);
         container.innerHTML = '';
         if (nextOffset !== null) {
-          appendLoadMore(container, listEl, nextOffset, allRepos);
+          appendLoadMore(container, listEl, nextOffset, allRepos, pinnedRepoId);
         }
       } catch (err) {
         btn.textContent = `Error: ${err}`;
