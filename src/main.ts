@@ -136,7 +136,7 @@ function renderFooter(): HTMLElement {
     '</div>' +
     '<div class="footer-col">' +
     '<h4>Resources</h4>' +
-    '<a href="/how">For Humans</a>' +
+    '<a href="/humans">For Humans</a>' +
     '<a href="/agents">For Agents</a>' +
     '<a href="/run-your-own">Run Your Own</a>' +
     '<a href="https://stats.uptimerobot.com/UsN4sHhQ0v" target="_blank" rel="noopener">Status</a>' +
