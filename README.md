@@ -4,8 +4,9 @@
 
 GitLike is a fully browser-based, decentralized version control system. Repositories are stored as content-addressed objects on [IPFS](https://ipfs.io/) (via [Pinata](https://pinata.cloud/)), authenticated with Ethereum wallets (SIWE), and served through a [Cloudflare Worker](https://workers.cloudflare.com/) backend.
 
-**Live at [gitlike.dev](https://gitlike.dev)**
+<img width="1200" height="896" alt="openart-image_1773084911200_627ab998_1773084911241_c26ea1a8" src="https://github.com/user-attachments/assets/fef4dd87-67c1-45cd-9523-e29cefd89254" />
 
+**Live at [gitlike.dev](https://gitlike.dev)**
 ---
 
 ## Why GitLike?
