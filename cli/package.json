@@ -1,0 +1,24 @@
+{
+  "name": "gitlike-cli",
+  "version": "0.1.0",
+  "description": "CLI for GitLike — decentralized version control on IPFS",
+  "type": "module",
+  "bin": {
+    "gitlike": "./bin/gitlike.mjs"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch"
+  },
+  "keywords": ["gitlike", "ipfs", "vcs", "cli"],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^13.1.0",
+    "open": "^10.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}

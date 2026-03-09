@@ -1,0 +1,48 @@
+{
+  "name": "gitlike",
+  "version": "0.1.0",
+  "description": "Decentralized version control on IPFS with SIWE auth",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm run build:frontend && wrangler dev",
+    "dev:frontend": "esbuild src/main.ts --bundle --outfile=public/dist/bundle.js --format=esm --sourcemap --watch",
+    "build": "pnpm run build:frontend",
+    "build:frontend": "esbuild src/main.ts --bundle --outfile=public/dist/bundle.js --format=esm --sourcemap --minify",
+    "deploy": "pnpm run build:frontend && wrangler deploy --env=\"\"",
+    "deploy:staging": "pnpm run build:frontend && wrangler deploy --env staging",
+    "deploy:pages": "wrangler deploy -c wrangler-pages.toml",
+    "build:cli": "node cli/build.mjs",
+    "check": "tsc --noEmit && tsc --noEmit -p worker/tsconfig.json && tsc --noEmit -p worker-pages/tsconfig.json && tsc --noEmit -p cli/tsconfig.json",
+    "format": "prettier --write \"src/**/*.ts\" \"worker/**/*.ts\" \"worker-pages/**/*.ts\" \"cli/**/*.ts\"",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ipfs",
+    "vcs",
+    "decentralized",
+    "pinata",
+    "wallet"
+  ],
+  "license": "MIT",
+  "packageManager": "pnpm@10.23.0",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260305.1",
+    "@types/node": "^25.3.3",
+    "@types/prismjs": "^1.26.6",
+    "esbuild": "^0.27.3",
+    "happy-dom": "^20.8.3",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18",
+    "wrangler": "^4.70.0"
+  },
+  "dependencies": {
+    "@walletconnect/ethereum-provider": "^2.23.7",
+    "@walletconnect/modal": "^2.7.0",
+    "fflate": "^0.8.2",
+    "hono": "^4.12.5",
+    "pinata": "^2.5.5",
+    "prismjs": "^1.30.0",
+    "viem": "^2.47.0"
+  }
+}

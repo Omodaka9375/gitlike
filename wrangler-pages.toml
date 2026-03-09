@@ -1,0 +1,27 @@
+# GitLike Pages — Cloudflare Worker Configuration
+#
+# Serves static websites from GitLike repos via IPFS.
+#
+# Setup:
+#   1. wrangler secret put PINATA_JWT -c wrangler-pages.toml
+#   2. wrangler secret put PINATA_GATEWAY -c wrangler-pages.toml
+#   3. pnpm run deploy:pages
+#
+name = "gitlike-pages"
+main = "worker-pages/index.ts"
+compatibility_date = "2026-03-05"
+workers_dev = true
+
+# Custom domain
+routes = [
+  { pattern = "app.gitlike.dev/*", zone_name = "gitlike.dev" }
+]
+
+[vars]
+PAGES_HOST = "app.gitlike.dev"
+
+# Shared KV namespace (same as main worker — for pages:slug and manifest:groupId lookups)
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "28c196d4a323421caed12c2f8a2e669f"
+preview_id = "d3d8491df1ee449597d026dd89446bbc"

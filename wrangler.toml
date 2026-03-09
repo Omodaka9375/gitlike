@@ -1,0 +1,74 @@
+# GitLike — Cloudflare Worker Configuration
+#
+# First-time setup:
+#   1. pnpm install
+#   2. wrangler login
+#   3. wrangler kv namespace create SESSIONS
+#      → Copy the id into [[kv_namespaces]] below
+#   4. wrangler kv namespace create SESSIONS --preview
+#      → Copy the id into preview_id below
+#   5. wrangler secret put PINATA_JWT
+#      → Paste your Pinata JWT when prompted
+#   6. pnpm run deploy
+
+name = "gitlike"
+main = "worker/index.ts"
+compatibility_date = "2026-03-05"
+workers_dev = false
+
+# Serve the SPA from public/
+[assets]
+directory = "public"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/.well-known/*"]
+
+# KV namespace for sessions and rate limiting
+# Replace IDs after running `wrangler kv namespace create SESSIONS`
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "28c196d4a323421caed12c2f8a2e669f"
+preview_id = "d3d8491df1ee449597d026dd89446bbc"
+
+# Durable Object for serialized repo mutations
+[[durable_objects.bindings]]
+name = "REPO_LOCK"
+class_name = "RepoLock"
+
+[[durable_objects.bindings]]
+name = "SOCIAL_LOCK"
+class_name = "SocialLock"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RepoLock"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SocialLock"]
+
+# Secrets (set via `wrangler secret put`):
+#   PINATA_JWT       — Pinata API JWT (required if STORAGE_PROVIDER=pinata)
+#   FILEBASE_KEY     — Filebase S3 access key (required if STORAGE_PROVIDER=filebase)
+#   FILEBASE_SECRET  — Filebase S3 secret key (required if STORAGE_PROVIDER=filebase)
+#
+# Storage provider: set STORAGE_PROVIDER in [vars] to 'pinata' (default) or 'filebase'.
+# Both providers implement the same StorageProvider interface and are interchangeable.
+# Fallback gateways can be configured via FALLBACK_GATEWAYS for cross-provider redundancy.
+
+# Daily manifest backup (03:00 UTC) + federation sync (every 6 hours)
+[triggers]
+crons = ["0 3 * * *", "0 */6 * * *"]
+
+[vars]
+ALLOWED_ORIGIN = "https://gitlike.dev"
+PLATFORM_ADMIN = "0x3ef33508F8ed14cD22802a8DFAde560A5bD98fCA"
+
+# ---------------------------------------------------------------------------
+# Staging environment — deploy with: pnpm run deploy:staging
+# ---------------------------------------------------------------------------
+[env.staging]
+name = "gitlike-staging"
+workers_dev = true
+
+[env.staging.vars]
+ALLOWED_ORIGIN = "https://gitlike-staging.workers.dev"

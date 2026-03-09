@@ -1,0 +1,8 @@
+node_modules/
+public/dist/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+.dev.vars
+.wrangler/
