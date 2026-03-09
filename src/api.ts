@@ -1351,12 +1351,11 @@ export async function togglePages(
   enabled: boolean,
   slug?: string,
   branch?: string,
-  spa?: boolean,
   folder?: string,
 ): Promise<{ manifestCid: string; slug: string | null }> {
   const res = await apiFetch(
     `/repos/${repoId}/pages`,
-    { method: 'POST', body: JSON.stringify({ enabled, slug, branch, spa, folder }) },
+    { method: 'POST', body: JSON.stringify({ enabled, slug, branch, folder }) },
     true,
   );
   invalidateManifest(repoId);

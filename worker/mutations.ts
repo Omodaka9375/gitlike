@@ -761,7 +761,6 @@ export type TogglePagesInput = {
   enabled: boolean;
   slug?: string;
   branch?: string;
-  spa?: boolean;
   folder?: string;
 };
 
@@ -814,7 +813,7 @@ export async function executeTogglePages(
     const folder = input.folder !== undefined ? input.folder || undefined : manifest.pages?.folder;
     const updated: Manifest = {
       ...manifest,
-      pages: { enabled: true, branch, slug, spa: !!input.spa, ...(folder ? { folder } : {}) },
+      pages: { enabled: true, branch, slug, ...(folder ? { folder } : {}) },
       version: (manifest.version ?? 0) + 1,
     };
     const upload = await pinJSON(provider, updated, input.groupId);

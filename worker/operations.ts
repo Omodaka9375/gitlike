@@ -683,7 +683,6 @@ repos.post('/:id/pages', requireAuth, rateLimit, async (c) => {
     enabled: boolean;
     slug?: string;
     branch?: string;
-    spa?: boolean;
     folder?: string;
   }>();
 
@@ -694,7 +693,6 @@ repos.post('/:id/pages', requireAuth, rateLimit, async (c) => {
     enabled: !!body.enabled,
     slug: body.slug,
     branch: body.branch,
-    spa: body.spa,
     folder: body.folder,
   });
 

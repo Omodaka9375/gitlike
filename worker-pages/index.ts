@@ -89,6 +89,48 @@ async function fetchRaw(env: Env, cid: string): Promise<Response> {
   return fetch(gwUrl(env, cid), { headers, cf: { cacheTtl: 86400 } } as RequestInit);
 }
 
+/** Fetch text content from IPFS. */
+async function fetchText(env: Env, cid: string): Promise<string> {
+  const res = await fetchRaw(env, cid);
+  if (!res.ok) throw new Error(`IPFS fetch failed: ${cid}`);
+  return res.text();
+}
+
+// ---------------------------------------------------------------------------
+// _redirects parser (Netlify/Cloudflare Pages convention)
+// ---------------------------------------------------------------------------
+
+type RedirectRule = { from: string; to: string; status: number };
+
+/** Parse a _redirects file into rules. */
+function parseRedirects(text: string): RedirectRule[] {
+  const rules: RedirectRule[] = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    rules.push({
+      from: parts[0],
+      to: parts[1],
+      status: parseInt(parts[2] || '301', 10) || 301,
+    });
+  }
+  return rules;
+}
+
+/** Match a request path against redirect rules. */
+function matchRedirect(rules: RedirectRule[], path: string): RedirectRule | null {
+  for (const rule of rules) {
+    if (rule.from === path) return rule;
+    if (rule.from.endsWith('/*')) {
+      const prefix = rule.from.slice(0, -2);
+      if (prefix === '' || path === prefix || path.startsWith(prefix + '/')) return rule;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Tree resolution
 // ---------------------------------------------------------------------------
@@ -267,8 +309,6 @@ export default {
         return htmlResponse(notFoundHtml(slug), 404);
       }
 
-      const isSpa = !!manifest.pages.spa;
-
       // 4. Resolve branch → HEAD commit → tree
       const branch = manifest.pages.branch || manifest.defaultBranch;
       const commitCid = manifest.branches[branch];
@@ -305,8 +345,45 @@ export default {
         if (blobCid) servePath = filePath + '/index.html';
       }
 
-      // SPA fallback: serve root index.html for extensionless paths
-      if (!blobCid && isSpa && !hasExtension(filePath)) {
+      // _redirects-based routing (e.g. /* /index.html 200 for SPAs)
+      if (!blobCid) {
+        const redirectsCid = await resolveFile(env, treeCid, '_redirects', cache);
+        if (redirectsCid) {
+          const text = await fetchText(env, redirectsCid);
+          const rules = parseRedirects(text);
+          const reqPath = '/' + filePath;
+          const match = matchRedirect(rules, reqPath);
+          if (match) {
+            const target = match.to.replace(/^\//, '');
+            const targetCid = await resolveFile(env, treeCid, target, cache);
+            if (targetCid) {
+              // Status 200 = rewrite (SPA), 301/302 = redirect
+              if (match.status === 200) {
+                blobCid = targetCid;
+                servePath = target;
+              } else {
+                const location = `/${slug}/${target}`;
+                return new Response(null, {
+                  status: match.status,
+                  headers: { Location: location },
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // 200.html fallback (Surge convention for SPA)
+      if (!blobCid && !hasExtension(filePath)) {
+        const fallback200 = await resolveFile(env, treeCid, '200.html', cache);
+        if (fallback200) {
+          blobCid = fallback200;
+          servePath = '200.html';
+        }
+      }
+
+      // Auto-SPA: extensionless path → root index.html
+      if (!blobCid && !hasExtension(filePath)) {
         blobCid = await resolveFile(env, treeCid, 'index.html', cache);
         if (blobCid) servePath = 'index.html';
       }

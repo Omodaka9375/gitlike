@@ -2181,24 +2181,6 @@ function showSettingsModal(route: Route, manifest: Manifest): void {
                   placeholder: 'my-repo',
                 },
               }),
-              el('div', {
-                cls: 'modal-row',
-                children: [
-                  el('label', {
-                    cls: 'platform-toggle-label',
-                    children: [
-                      el('input', {
-                        attrs: {
-                          id: 'settings-pages-spa',
-                          type: 'checkbox',
-                          ...(manifest.pages?.spa ? { checked: 'checked' } : {}),
-                        },
-                      }),
-                      el('span', { text: ' SPA mode (index.html for all routes)' }),
-                    ],
-                  }),
-                ],
-              }),
               el('label', {
                 text: 'Branch to serve',
                 attrs: { for: 'settings-pages-branch' },
@@ -2232,6 +2214,10 @@ function showSettingsModal(route: Route, manifest: Manifest): void {
               el('p', {
                 cls: 'modal-hint',
                 text: 'Subfolder to serve (e.g. /docs, /public, /dist). Use / for repo root.',
+              }),
+              el('p', {
+                cls: 'modal-hint',
+                text: 'SPA frameworks: add a _redirects file with "/* /index.html 200" or a 200.html.',
               }),
               ...(manifest.pages?.enabled
                 ? [
@@ -2313,8 +2299,6 @@ function showSettingsModal(route: Route, manifest: Manifest): void {
                 const pagesBranch = (
                   document.getElementById('settings-pages-branch') as HTMLSelectElement
                 )?.value;
-                const pagesSpa = (document.getElementById('settings-pages-spa') as HTMLInputElement)
-                  ?.checked;
                 const pagesFolder = (
                   document.getElementById('settings-pages-folder') as HTMLInputElement
                 )?.value
@@ -2324,11 +2308,10 @@ function showSettingsModal(route: Route, manifest: Manifest): void {
                 const wasEnabled = !!manifest.pages?.enabled;
                 const slugChanged = manifest.pages?.slug !== pagesSlug;
                 const branchChanged = manifest.pages?.branch !== pagesBranch;
-                const spaChanged = !!manifest.pages?.spa !== pagesSpa;
                 const folderChanged = (manifest.pages?.folder ?? '') !== pagesFolder;
                 if (
                   pagesEnabled !== wasEnabled ||
-                  (pagesEnabled && (slugChanged || branchChanged || spaChanged || folderChanged))
+                  (pagesEnabled && (slugChanged || branchChanged || folderChanged))
                 ) {
                   if (status)
                     status.textContent = pagesEnabled ? 'Enabling Pages...' : 'Disabling Pages...';
@@ -2337,7 +2320,6 @@ function showSettingsModal(route: Route, manifest: Manifest): void {
                     pagesEnabled,
                     pagesSlug || undefined,
                     pagesBranch || undefined,
-                    pagesSpa,
                     pagesFolder || undefined,
                   );
                 }
