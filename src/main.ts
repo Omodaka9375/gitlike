@@ -155,7 +155,8 @@ async function handleRoute(route: Route): Promise<void> {
     });
   }
 
-  // Footer
+  // Footer — remove old one before appending
+  root.querySelector('.site-footer')?.remove();
   root.appendChild(renderFooter());
 }
 
