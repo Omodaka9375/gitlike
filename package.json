@@ -37,6 +37,7 @@
     "wrangler": "^4.70.0"
   },
   "dependencies": {
+    "@cf-wasm/resvg": "^0.3.3",
     "@walletconnect/ethereum-provider": "^2.23.7",
     "@walletconnect/modal": "^2.7.0",
     "fflate": "^0.8.2",

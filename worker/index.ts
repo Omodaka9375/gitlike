@@ -19,7 +19,7 @@ import {
 import { requestLogger } from './logger.js';
 import { createStorage, fetchManifest, walkCommitHistory } from './ipfs.js';
 import type { Manifest } from './ipfs.js';
-import { generateRepoOgImage } from './og-image.js';
+import { renderOgPng } from './og-image.js';
 import { runMigrations } from './migrations.js';
 import {
   getPlatformSettings,
@@ -790,14 +790,30 @@ function escXml(s: string): string {
 
 app.get('/api/og/:groupId', async (c) => {
   const groupId = c.req.param('groupId');
+
+  // Check KV cache first (PNG bytes stored as arrayBuffer)
+  const cacheKey = `og:png:${groupId}`;
+  const cached = await c.env.SESSIONS.get(cacheKey, 'arrayBuffer');
+  if (cached) {
+    return c.body(cached, 200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+    });
+  }
+
   try {
     const provider = createStorage(c.env);
     const manifest = await fetchManifest(provider, c.env, groupId);
     if (!manifest) return c.body('Not found', 404);
     if (manifest.visibility === 'private') return c.body('Not found', 404);
-    const svg = generateRepoOgImage(manifest);
-    return c.body(svg, 200, {
-      'Content-Type': 'image/svg+xml',
+    const png = renderOgPng(manifest);
+    const pngBuf = new Uint8Array(png) as Uint8Array<ArrayBuffer>;
+
+    // Cache in KV for 24 hours
+    c.executionCtx.waitUntil(c.env.SESSIONS.put(cacheKey, pngBuf.buffer, { expirationTtl: 86400 }));
+
+    return c.body(pngBuf, 200, {
+      'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=3600, s-maxage=3600',
     });
   } catch {
@@ -819,6 +835,7 @@ const STATIC_ROUTES = new Set([
   'run-your-own',
   'cli-auth',
   'cli',
+  'about',
   'projects',
   'user',
   'api',

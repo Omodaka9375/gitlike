@@ -1,8 +1,10 @@
 // ---------------------------------------------------------------------------
 // GitLike — Dynamic OG Image Generator
-// Produces branded SVG cards for social media link previews.
+// Produces branded PNG cards for social media link previews.
+// Uses resvg WASM to render SVG → PNG (social crawlers reject SVG).
 // ---------------------------------------------------------------------------
 
+import { Resvg } from '@cf-wasm/resvg/workerd';
 import type { Manifest } from './ipfs.js';
 
 /** Generate an SVG OG image for a repository. */
@@ -112,6 +114,14 @@ function escSvg(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/** Render a repository OG image as PNG bytes. */
+export function renderOgPng(manifest: Manifest): Uint8Array {
+  const svg = generateRepoOgImage(manifest);
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1200 } });
+  const rendered = resvg.render();
+  return rendered.asPng();
 }
 
 /** Truncate text with ellipsis. */
