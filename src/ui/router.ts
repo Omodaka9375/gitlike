@@ -23,7 +23,8 @@ export type View =
   | 'history'
   | 'projects'
   | 'project'
-  | 'cli';
+  | 'cli'
+  | 'about';
 
 /** Parsed route state. */
 export type Route = {
@@ -87,6 +88,11 @@ export function parsePath(pathname: string): Route {
   // /cli — CLI usage guide
   if (parts[0] === 'cli') {
     return { view: 'cli', groupId: '', slug: '', branch: '', path: '', segments: [] };
+  }
+
+  // /about — about page
+  if (parts[0] === 'about') {
+    return { view: 'about', groupId: '', slug: '', branch: '', path: '', segments: [] };
   }
 
   // /projects — project list

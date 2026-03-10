@@ -1395,6 +1395,146 @@ export function renderCli(root: HTMLElement): void {
 }
 
 // ---------------------------------------------------------------------------
+// About
+// ---------------------------------------------------------------------------
+
+/** Render the About page. */
+export function renderAbout(root: HTMLElement): void {
+  render(
+    root,
+    el('header', {
+      cls: 'site-header',
+      children: [
+        el('h1', { cls: 'hero-title', text: 'About GitLike' }),
+        el('p', {
+          cls: 'subtitle',
+          text: 'Why it exists and where it\u2019s going',
+        }),
+      ],
+    }),
+
+    // Story
+    el('div', {
+      cls: 'about-story fade-in',
+      children: [
+        el('p', {
+          text: 'I built GitLike because code hosting shouldn\u2019t depend on a single company. Every year a platform changes its pricing, restricts features, or disappears and developers scramble to migrate. Your source code deserves better.',
+        }),
+        el('p', {
+          text: 'GitLike stores everything on IPFS as content-addressed objects. Commits, trees, and blobs live on a decentralized network. Authentication uses your Ethereum wallet via SIWE, so there are no passwords to leak.',
+        }),
+        el('p', {
+          text: 'The goal is simple: a Git-like workflow where you actually own your data. Fork it, self-host it, federate it under your domain. Your code, your keys.',
+        }),
+      ],
+    }),
+
+    // How to use
+    el('div', {
+      cls: 'how-section fade-in',
+      children: [
+        el('h2', { text: 'How It\u2019s Meant to Be Used' }),
+        el('div', {
+          cls: 'how-grid',
+          children: [
+            aboutCard(
+              '\uD83D\uDE80',
+              'For Solo Developers',
+              'Create a repo, push your code, and know it\u2019s pinned on IPFS. Your CIDs are yours forever.',
+            ),
+            aboutCard(
+              '\uD83D\uDC65',
+              'For Teams',
+              'Add developers via wallet addresses. Use branch protection, pull requests, and agent delegations to collaborate with clear ownership.',
+            ),
+            aboutCard(
+              '\uD83E\uDD16',
+              'For AI Agents',
+              'Delegate scoped write access to AI agents with EIP-191 signatures. Agents can commit, branch, and merge within the boundaries you set.',
+            ),
+            aboutCard(
+              '\uD83C\uDFE0',
+              'For Self-Hosters',
+              'Deploy your own instance on Cloudflare Workers. Join the federation to make your repos discoverable across the network.',
+            ),
+          ],
+        }),
+      ],
+    }),
+
+    // Connect
+    el('div', {
+      cls: 'about-connect fade-in',
+      children: [
+        el('h2', { text: 'Connect' }),
+        el('p', {
+          cls: 'about-connect-text',
+          text: 'Follow along, share feedback, or just say hi.',
+        }),
+        el('div', {
+          cls: 'about-social',
+          children: [
+            socialLink(
+              '(Twitter)',
+              'https://x.com/LordOfThePies4',
+              'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
+            ),
+            socialLink(
+              'Farcaster',
+              'https://farcaster.xyz/bane84',
+              'M5.868 3h12.264v18H16.2v-7.412c0-.588-.01-1.2-.02-1.836-.052-1.596-.436-2.808-1.464-3.636-.984-.792-2.1-.9-3.168-.624-.768.204-1.392.636-1.86 1.224-.516.648-.78 1.488-.804 2.4v9.884H6.96v-7.452c0-.852-.012-1.308-.036-1.788-.084-1.644-.456-2.868-1.5-3.696-.996-.792-2.124-.888-3.192-.612-.768.204-1.404.636-1.872 1.224-.516.648-.78 1.488-.804 2.4V21H0V3z',
+            ),
+            socialLink(
+              'YouTube',
+              'https://youtube.com/@interlooper',
+              'M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z',
+            ),
+          ],
+        }),
+      ],
+    }),
+
+    // Open source note
+    el('div', {
+      cls: 'about-oss fade-in',
+      children: [
+        el('p', {
+          text: 'GitLike is open-source. The entire codebase is available on GitLike itself. Eat your own dog food.',
+        }),
+      ],
+    }),
+  );
+}
+
+/** Card for about page sections. */
+function aboutCard(icon: string, title: string, body: string): HTMLElement {
+  return el('div', {
+    cls: 'how-card fade-in',
+    children: [
+      el('div', { cls: 'how-icon', text: icon }),
+      el('h3', { text: title }),
+      el('p', { text: body }),
+    ],
+  });
+}
+
+/** Social link with SVG icon. */
+function socialLink(label: string, href: string, svgPath: string): HTMLElement {
+  return el('a', {
+    cls: 'about-social-link',
+    attrs: { href, target: '_blank', rel: 'noopener' },
+    children: [
+      (() => {
+        const wrap = el('span', { cls: 'about-social-icon' });
+        wrap.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="${svgPath}"/></svg>`;
+        return wrap;
+      })(),
+      el('span', { text: label }),
+    ],
+  });
+}
+
+// ---------------------------------------------------------------------------
 // CLI Auth browser-based auth callback for the CLI
 // ---------------------------------------------------------------------------
 

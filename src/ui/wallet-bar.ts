@@ -68,6 +68,11 @@ export function renderWalletBar(): HTMLElement {
       text: 'CLI',
       attrs: { href: '/cli' },
     }),
+    el('a', {
+      cls: `topbar-link${route.view === 'about' ? ' active' : ''}`,
+      text: 'About',
+      attrs: { href: '/about' },
+    }),
   ];
 
   const nav = el('nav', { cls: 'topbar-nav', children: navLinks });

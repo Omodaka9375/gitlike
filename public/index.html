@@ -273,6 +273,42 @@
     .how-section li:hover { border-color: var(--accent); color: var(--text); }
     @media (max-width: 640px) { .how-grid, .how-section ul { grid-template-columns: 1fr; } }
 
+    /* ===== About Page ===== */
+    .about-story {
+      max-width: 720px; margin: 0 auto 2.5rem;
+      font-size: 1.05rem; line-height: 1.8; color: var(--text-secondary);
+    }
+    .about-story p { margin-bottom: 1.25rem; }
+    .about-story p:first-child {
+      font-size: 1.15rem; color: var(--text); font-weight: 500;
+    }
+    .about-connect {
+      max-width: 720px; margin: 0 auto 2.5rem; text-align: center;
+    }
+    .about-connect h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .about-connect-text { color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1.25rem; }
+    .about-social {
+      display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;
+    }
+    .about-social-link {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.6rem 1.25rem; border-radius: var(--radius-full);
+      background: var(--surface); border: 1px solid var(--border-subtle);
+      color: var(--text-secondary); font-size: 0.88rem; font-weight: 500;
+      text-decoration: none; transition: all var(--transition);
+    }
+    .about-social-link:hover {
+      border-color: var(--accent); color: var(--text); background: var(--accent-dim);
+      box-shadow: 0 0 20px var(--glow-accent); transform: translateY(-1px);
+    }
+    .about-social-icon { display: inline-flex; align-items: center; line-height: 1; }
+    .about-oss {
+      max-width: 720px; margin: 0 auto 2rem; text-align: center;
+      padding: 1.5rem 2rem; border-radius: var(--radius-md);
+      background: var(--surface); border: 1px solid var(--border-subtle);
+      color: var(--text-secondary); font-size: 0.92rem; line-height: 1.6;
+    }
+
     /* ===== Footer ===== */
     .site-footer {
       width: 100%; margin-top: 0;

@@ -12,6 +12,7 @@ import {
   renderRunYourOwn,
   renderCliAuth,
   renderCli,
+  renderAbout,
   renderRepo,
   renderTreeOrBlob,
   renderCommits,
@@ -71,6 +72,9 @@ async function handleRoute(route: Route): Promise<void> {
         break;
       case 'cli':
         renderCli(content);
+        break;
+      case 'about':
+        renderAbout(content);
         break;
       case 'repo':
         await renderRepo(content, route);
@@ -139,6 +143,7 @@ function renderFooter(): HTMLElement {
     '<a href="/humans">For Humans</a>' +
     '<a href="/agents">For Agents</a>' +
     '<a href="/run-your-own">Run Your Own</a>' +
+    '<a href="/about">About</a>' +
     '<a href="https://stats.uptimerobot.com/UsN4sHhQ0v" target="_blank" rel="noopener">Status</a>' +
     '</div>' +
     '<div class="footer-col">' +

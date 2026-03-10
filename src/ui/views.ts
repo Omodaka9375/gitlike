@@ -9,6 +9,7 @@ export {
   renderRunYourOwn,
   renderCliAuth,
   renderCli,
+  renderAbout,
 } from './info-pages.js';
 export {
   renderRepo,
