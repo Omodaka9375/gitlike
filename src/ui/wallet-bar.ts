@@ -288,6 +288,8 @@ function buildThemeToggleBtn(): HTMLElement {
 // ---------------------------------------------------------------------------
 
 async function handleConnect(): Promise<void> {
+  const btn = document.querySelector('.connect-btn') as HTMLButtonElement | null;
+  if (btn) btn.disabled = true;
   try {
     await connect();
     // Authenticate with SIWE after wallet connection
@@ -298,12 +300,13 @@ async function handleConnect(): Promise<void> {
     }
     refreshBar();
   } catch (err) {
+    if (btn) btn.disabled = false;
     await showAlert(`Failed to connect: ${err instanceof Error ? err.message : err}`);
   }
 }
 
-async function handleDisconnect(): Promise<void> {
-  await disconnect();
+function handleDisconnect(): void {
+  disconnect();
   refreshBar();
 }
 
@@ -386,7 +389,7 @@ function buildCreateDropdown(): HTMLElement {
 }
 
 /** Swap the wallet bar in place without re-rendering the whole page. */
-function refreshBar(): void {
+export function refreshBar(): void {
   const existing = document.querySelector('.wallet-bar');
   if (!existing?.parentElement) return;
   const parent = existing.parentElement;

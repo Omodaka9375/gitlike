@@ -23,6 +23,9 @@ const IMPORT_CONCURRENCY = 5;
 /** Session token storage key. */
 const SESSION_KEY = 'gitlike_session';
 
+/** Session TTL in milliseconds (matches server's 24h). */
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
 /** Max cached gateway responses (immutable content-addressed data). */
 const CACHE_MAX = 500;
 
@@ -33,24 +36,56 @@ const MANIFEST_TTL = 15_000;
 // Session management
 // ---------------------------------------------------------------------------
 
-/** Get the current session token. */
+type StoredSession = { token: string; expiresAt: number };
+
+/** Get the current session token. Returns null if missing or expired. */
 export function getSessionToken(): string | null {
-  return sessionStorage.getItem(SESSION_KEY);
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const session: StoredSession = JSON.parse(raw);
+    if (Date.now() >= session.expiresAt) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return session.token;
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+    return null;
+  }
 }
 
-/** Store a session token. */
+/** Store a session token with expiry. */
 export function setSessionToken(token: string): void {
-  sessionStorage.setItem(SESSION_KEY, token);
+  const session: StoredSession = { token, expiresAt: Date.now() + SESSION_TTL_MS };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 /** Clear the session token. */
 export function clearSessionToken(): void {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 /** Check if a session is active. */
 export function hasSession(): boolean {
   return !!getSessionToken();
+}
+
+/** Validate the current session against the server. Clears token if invalid. */
+export async function validateSession(): Promise<boolean> {
+  const token = getSessionToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return true;
+    clearSessionToken();
+    return false;
+  } catch {
+    // Network error — assume still valid to avoid offline breakage
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------------------

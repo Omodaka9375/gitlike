@@ -56,45 +56,78 @@ export async function connect(): Promise<Address> {
 
 /**
  * Silently restore a previous session if the wallet is already authorized.
- * Uses eth_accounts (no popup) instead of eth_requestAccounts.
+ * Tries injected provider first, then WalletConnect if a prior WC session exists.
+ * Validates the server session and re-authenticates if stale.
  */
 export async function reconnect(): Promise<Address | null> {
-  if (!hasInjectedProvider()) return null;
   // Skip if user explicitly logged out
   if (localStorage.getItem(LOGOUT_KEY)) return null;
-  try {
-    const accounts = (await window.ethereum!.request({ method: 'eth_accounts' })) as string[];
-    if (!accounts || accounts.length === 0) return null;
 
-    const transport: Transport = custom(window.ethereum!);
-    _walletClient = createWalletClient({ chain: activeChain, transport });
-    _connectedAddress = accounts[0] as Address;
-    _notify();
-    return _connectedAddress;
-  } catch {
-    return null;
+  let address: Address | null = null;
+
+  // Try injected provider (MetaMask etc.)
+  if (hasInjectedProvider()) {
+    try {
+      const accounts = (await window.ethereum!.request({ method: 'eth_accounts' })) as string[];
+      if (accounts && accounts.length > 0) {
+        const transport: Transport = custom(window.ethereum!);
+        _walletClient = createWalletClient({ chain: activeChain, transport });
+        address = accounts[0] as Address;
+      }
+    } catch {
+      // Injected provider failed — fall through to WC
+    }
   }
+
+  // Try WalletConnect if injected didn't work and a prior WC session exists
+  if (!address && localStorage.getItem(WC_SESSION_KEY)) {
+    try {
+      address = await reconnectWalletConnect();
+    } catch {
+      localStorage.removeItem(WC_SESSION_KEY);
+    }
+  }
+
+  if (!address) return null;
+
+  _connectedAddress = address;
+  _notify();
+
+  // Validate server session; re-authenticate if stale
+  const { validateSession } = await import('./api.js');
+  const valid = await validateSession();
+  if (!valid) {
+    try {
+      await authenticateWithSiwe();
+    } catch {
+      // Stay connected read-only — address set, no session
+    }
+  }
+
+  return _connectedAddress;
 }
 
 /** LocalStorage key to remember explicit logout across refreshes. */
 const LOGOUT_KEY = 'gitlike_logged_out';
 
-/** Disconnect (clear local state and server session). */
-export async function disconnect(): Promise<void> {
-  const { logout } = await import('./api.js');
-  await logout();
-  if (_wcProvider) {
-    try {
-      await _wcProvider.disconnect();
-    } catch {
-      /* best-effort */
-    }
-    _wcProvider = null;
-  }
+/** LocalStorage key to remember WalletConnect session. */
+const WC_SESSION_KEY = 'gitlike_wc_connected';
+
+/** Disconnect — clears local state immediately, then fires cleanup best-effort. */
+export function disconnect(): void {
+  // Clear local state first for instant UI feedback
   _walletClient = null;
   _connectedAddress = null;
   localStorage.setItem(LOGOUT_KEY, '1');
+  localStorage.removeItem(WC_SESSION_KEY);
   _notify();
+
+  // Fire server logout + WC disconnect best-effort (no await)
+  import('./api.js').then(({ logout }) => logout()).catch(() => {});
+  if (_wcProvider) {
+    _wcProvider.disconnect().catch(() => {});
+    _wcProvider = null;
+  }
 }
 
 /** Get the currently connected address, or null. */
@@ -130,6 +163,7 @@ export async function connectWalletConnect(): Promise<Address> {
 
   await provider.enable();
   _wcProvider = provider;
+  localStorage.setItem(WC_SESSION_KEY, '1');
 
   const transport: Transport = custom(provider);
   _walletClient = createWalletClient({ chain: activeChain, transport });
@@ -141,6 +175,26 @@ export async function connectWalletConnect(): Promise<Address> {
   _connectedAddress = accounts[0] as Address;
   _notify();
   return _connectedAddress;
+}
+
+/** Silently restore a WalletConnect session if one exists. */
+async function reconnectWalletConnect(): Promise<Address | null> {
+  const { EthereumProvider } = await import('@walletconnect/ethereum-provider');
+  const provider = await EthereumProvider.init({
+    projectId: WALLETCONNECT_PROJECT_ID,
+    chains: [activeChain.id],
+    showQrModal: false,
+  });
+
+  if (!provider.session) return null;
+
+  _wcProvider = provider;
+  const transport: Transport = custom(provider);
+  _walletClient = createWalletClient({ chain: activeChain, transport });
+
+  const accounts = provider.accounts;
+  if (!accounts || accounts.length === 0) return null;
+  return accounts[0] as Address;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,14 +233,16 @@ export function attachProviderListeners(): void {
       _connectedAddress = null;
       import('./api.js').then(({ clearSessionToken }) => clearSessionToken());
       _notify();
-      // Re-render the current view
       window.dispatchEvent(new CustomEvent('wallet-changed'));
     } else if (accounts[0].toLowerCase() !== _connectedAddress?.toLowerCase()) {
-      // Account switched — clear stale session, update address
+      // Account switched — clear stale session, update address, re-authenticate
       _connectedAddress = accounts[0] as Address;
       import('./api.js').then(({ clearSessionToken }) => clearSessionToken());
       _notify();
-      window.dispatchEvent(new CustomEvent('wallet-changed'));
+      // Auto re-authenticate with new account
+      authenticateWithSiwe()
+        .catch(() => {}) // Stay connected read-only if SIWE fails
+        .finally(() => window.dispatchEvent(new CustomEvent('wallet-changed')));
     }
   });
 

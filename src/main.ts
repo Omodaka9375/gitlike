@@ -29,6 +29,7 @@ import {
 } from './ui/views.js';
 import { renderWalletBar } from './ui/wallet-bar.js';
 import { reconnect, attachProviderListeners } from './wallet.js';
+import { refreshBar } from './ui/wallet-bar.js';
 import { resolveSlug } from './api.js';
 
 /** Route the current view to the correct renderer. */
@@ -36,15 +37,24 @@ async function handleRoute(route: Route): Promise<void> {
   const root = document.getElementById('app');
   if (!root) return;
 
-  // Always render wallet bar at the top
-  root.innerHTML = '';
-  root.appendChild(renderWalletBar());
+  // Show loading indicator while route resolves
+  const existingContent = document.getElementById('content');
+  if (existingContent) {
+    // Keep existing DOM visible; overlay a route-loading indicator
+    existingContent.classList.add('route-loading');
+  } else {
+    // First render — build skeleton
+    root.innerHTML = '';
+    root.appendChild(renderWalletBar());
+    const placeholder = document.createElement('div');
+    placeholder.id = 'content';
+    placeholder.classList.add('route-loading');
+    root.appendChild(placeholder);
+  }
 
-  // Content container below the wallet bar
+  // Build new content off-screen
   const content = document.createElement('div');
   content.id = 'content';
-  // Non-home views get page-container padding; home manages its own layout
-  root.appendChild(content);
 
   try {
     // Resolve slug → groupId for repo views
@@ -121,6 +131,19 @@ async function handleRoute(route: Route): Promise<void> {
     }
   } catch (err) {
     renderErrorWithRetry(content, err, route);
+  }
+
+  // Swap in the new content
+  const oldContent = document.getElementById('content');
+  if (oldContent) {
+    oldContent.replaceWith(content);
+  } else {
+    root.appendChild(content);
+  }
+
+  // Ensure wallet bar is present
+  if (!root.querySelector('.wallet-bar')) {
+    root.insertBefore(renderWalletBar(), root.firstChild);
   }
 
   // Wire up branch-select change events after render
@@ -261,8 +284,8 @@ async function bootstrap(): Promise<void> {
   await reconnect();
   attachProviderListeners();
 
-  // Re-render when the wallet locks, disconnects, or switches accounts
-  window.addEventListener('wallet-changed', () => handleRoute(currentRoute()));
+  // Refresh only the wallet bar when wallet state changes (not the whole page)
+  window.addEventListener('wallet-changed', () => refreshBar());
 
   setupKeyboardShortcuts();
   handleRoute(currentRoute());

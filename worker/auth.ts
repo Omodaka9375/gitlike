@@ -116,6 +116,23 @@ auth.post('/verify', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/auth/me — validate session, return address
+// ---------------------------------------------------------------------------
+
+auth.get('/me', async (c) => {
+  const header = c.req.header('Authorization');
+  if (!header?.startsWith('Bearer ')) {
+    return c.json({ error: 'Not authenticated.' }, 401);
+  }
+  const token = header.slice(7);
+  const address = await c.env.SESSIONS.get(`session:${token}`);
+  if (!address) {
+    return c.json({ error: 'Invalid or expired session.' }, 401);
+  }
+  return c.json({ address });
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/auth/logout — destroy session
 // ---------------------------------------------------------------------------
 
