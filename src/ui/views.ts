@@ -21,6 +21,7 @@ export {
 } from './repo-view.js';
 export { renderCommitDetail } from './commit-detail.js';
 export { renderPRList, renderPRDetail } from './pr-views.js';
+export { renderIssueList, renderIssueDetail } from './issue-views.js';
 export { renderFileHistory } from './file-history.js';
 export { renderUserProfile } from './user-profile.js';
 export { renderStarredRepos } from './starred-repos.js';

@@ -20,6 +20,8 @@ export type View =
   | 'stars'
   | 'prs'
   | 'pr'
+  | 'issues'
+  | 'issue'
   | 'history'
   | 'projects'
   | 'project'
@@ -43,6 +45,8 @@ export type Route = {
   address?: string;
   /** PR CID for PR detail view. */
   prCid?: string;
+  /** Issue CID for issue detail view. */
+  issueCid?: string;
   /** Project slug for project views. */
   projectSlug?: string;
 };
@@ -182,6 +186,16 @@ export function parsePath(pathname: string): Route {
   // /<slug>/pr/<cid> — pull request detail
   if (parts[1] === 'pr' && parts[2]) {
     return { view: 'pr', groupId, slug, branch: '', path: '', segments: [], prCid: parts[2] };
+  }
+
+  // /<slug>/issues — issue list
+  if (parts[1] === 'issues') {
+    return { view: 'issues', groupId, slug, branch: '', path: '', segments: [] };
+  }
+
+  // /<slug>/issue/<cid> — issue detail
+  if (parts[1] === 'issue' && parts[2]) {
+    return { view: 'issue', groupId, slug, branch: '', path: '', segments: [], issueCid: parts[2] };
   }
 
   const branch = parts[1] || 'main';

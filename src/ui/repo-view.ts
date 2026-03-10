@@ -1064,6 +1064,18 @@ export function renderRepoHeader(manifest: Manifest, route: Route): HTMLElement 
     }),
   );
 
+  const issueCount = (manifest.issues ?? []).length;
+  navChildren.push(
+    el('a', {
+      cls: 'nav-link',
+      children: [
+        el('span', { text: '\uD83D\uDCCB Issues' }),
+        ...(issueCount > 0 ? [el('span', { cls: 'badge', text: String(issueCount) })] : []),
+      ],
+      attrs: { href: `/${route.groupId}/issues` },
+    }),
+  );
+
   // Search input
   const searchInput = el('input', {
     cls: 'branch-select',

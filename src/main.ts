@@ -21,6 +21,8 @@ import {
   renderStarredRepos,
   renderPRList,
   renderPRDetail,
+  renderIssueList,
+  renderIssueDetail,
   renderFileHistory,
   renderProjectList,
   renderProjectDetail,
@@ -100,6 +102,12 @@ async function handleRoute(route: Route): Promise<void> {
         break;
       case 'pr':
         await renderPRDetail(content, route);
+        break;
+      case 'issues':
+        await renderIssueList(content, route);
+        break;
+      case 'issue':
+        await renderIssueDetail(content, route);
         break;
       case 'history':
         await renderFileHistory(content, route);

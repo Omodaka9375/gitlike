@@ -831,6 +831,108 @@ repos.get('/:id/prs', optionalAuth, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/repos/:id/issues — create an issue (serialized via DO)
+// ---------------------------------------------------------------------------
+
+repos.post('/:id/issues', requireAuth, rateLimit, async (c) => {
+  const address = c.get('address') as Address;
+  const groupId = c.req.param('id') as GroupId;
+
+  const body = await c.req.json<{
+    title: string;
+    body?: string;
+    labels?: string[];
+  }>();
+
+  if (!body.title?.trim()) return c.json({ error: 'Title is required.' }, 400);
+
+  const doRes = await dispatchToDO(c.env, groupId, {
+    action: 'createIssue',
+    groupId,
+    address,
+    title: body.title.trim(),
+    body: body.body?.trim() ?? '',
+    labels: body.labels ?? [],
+  });
+
+  return new Response(doRes.body, {
+    status: doRes.ok ? 201 : doRes.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/repos/:id/issues/:cid — update an issue (serialized via DO)
+// ---------------------------------------------------------------------------
+
+repos.patch('/:id/issues/:cid', requireAuth, rateLimit, async (c) => {
+  const address = c.get('address') as Address;
+  const groupId = c.req.param('id') as GroupId;
+  const issueCid = c.req.param('cid');
+
+  const body = await c.req.json<{
+    status?: 'open' | 'closed';
+    comment?: string;
+    labels?: string[];
+  }>();
+
+  if (body.status && !['open', 'closed'].includes(body.status)) {
+    return c.json({ error: 'Invalid status.' }, 400);
+  }
+
+  const doRes = await dispatchToDO(c.env, groupId, {
+    action: 'updateIssue',
+    groupId,
+    address,
+    issueCid,
+    status: body.status,
+    comment: body.comment?.trim(),
+    labels: body.labels,
+  });
+
+  return new Response(doRes.body, {
+    status: doRes.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/repos/:id/issues — list issues (public)
+// ---------------------------------------------------------------------------
+
+repos.get('/:id/issues', optionalAuth, async (c) => {
+  const groupId = c.req.param('id') as GroupId;
+
+  try {
+    const provider = createStorage(c.env);
+    const manifest = await fetchManifest(provider, c.env, groupId);
+    if (!manifest) return c.json({ error: 'Repository not found.' }, 404);
+
+    const denied = checkRepoAccess(c, manifest);
+    if (denied) return denied;
+
+    const issueCids = manifest.issues ?? [];
+    const settled = await Promise.allSettled(
+      issueCids.map(async (cid) => {
+        const issue = await fetchJSON(c.env, cid);
+        return { cid, issue };
+      }),
+    );
+    const issues = settled
+      .filter(
+        (r): r is PromiseFulfilledResult<{ cid: string; issue: unknown }> =>
+          r.status === 'fulfilled',
+      )
+      .map((r) => r.value);
+
+    c.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
+    return c.json({ issues });
+  } catch (err) {
+    return c.json({ error: `Failed to list issues: ${errorMsg(err)}` }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/repos/:id/commits/:branch — paginated commit history (public)
 // ---------------------------------------------------------------------------
 

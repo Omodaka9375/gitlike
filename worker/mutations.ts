@@ -12,7 +12,7 @@ import {
   storeManifestCid,
   pruneOldSnapshots,
 } from './ipfs.js';
-import type { Address, GroupId, Tree, Commit, Manifest, PullRequest } from './ipfs.js';
+import type { Address, GroupId, Tree, Commit, Manifest, PullRequest, Issue } from './ipfs.js';
 import { buildMergedTree, mergeTrees } from './tree-builder.js';
 import type { StagedFile } from './tree-builder.js';
 import type { Env } from './env.js';
@@ -838,6 +838,109 @@ export async function executeTogglePages(
 }
 
 // ---------------------------------------------------------------------------
+// Issue mutations
+// ---------------------------------------------------------------------------
+
+export type CreateIssueInput = {
+  action: 'createIssue';
+  groupId: GroupId;
+  address: Address;
+  title: string;
+  body: string;
+  labels: string[];
+};
+
+export type UpdateIssueInput = {
+  action: 'updateIssue';
+  groupId: GroupId;
+  address: Address;
+  issueCid: string;
+  status?: 'open' | 'closed';
+  comment?: string;
+  labels?: string[];
+};
+
+export type IssueResult = {
+  issueCid: string;
+  manifestCid: string;
+};
+
+/** Create a new issue. */
+export async function executeCreateIssue(env: Env, input: CreateIssueInput): Promise<IssueResult> {
+  const provider = createStorage(env);
+
+  const manifest = await fetchManifest(provider, env, input.groupId);
+  if (!manifest) throw new MutationError('Repository not found.', 404);
+
+  const now = new Date().toISOString();
+  const number = (manifest.issueCount ?? 0) + 1;
+  const issue: Issue = {
+    type: 'issue',
+    number,
+    title: input.title,
+    body: input.body,
+    author: input.address,
+    status: 'open',
+    labels: input.labels,
+    comments: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+  const issueUpload = await pinJSON(provider, issue, input.groupId);
+
+  const updated: Manifest = {
+    ...manifest,
+    issues: [...(manifest.issues ?? []), issueUpload.cid],
+    issueCount: number,
+    version: (manifest.version ?? 0) + 1,
+  };
+  const manifestUpload = await pinJSON(provider, updated, input.groupId);
+  await storeManifestCid(provider, env, input.groupId, manifestUpload.cid);
+
+  return { issueCid: issueUpload.cid, manifestCid: manifestUpload.cid };
+}
+
+/** Update an issue (comment, close/reopen, labels). */
+export async function executeUpdateIssue(env: Env, input: UpdateIssueInput): Promise<IssueResult> {
+  const provider = createStorage(env);
+
+  const manifest = await fetchManifest(provider, env, input.groupId);
+  if (!manifest) throw new MutationError('Repository not found.', 404);
+
+  const existing = await fetchJSON<Issue>(env, input.issueCid);
+  const now = new Date().toISOString();
+
+  const comments = [...existing.comments];
+  if (input.comment) {
+    comments.push({ author: input.address, body: input.comment, createdAt: now });
+  }
+
+  const updatedIssue: Issue = {
+    ...existing,
+    status: input.status ?? existing.status,
+    labels: input.labels ?? existing.labels,
+    comments,
+    updatedAt: now,
+  };
+  const issueUpload = await pinJSON(provider, updatedIssue, input.groupId);
+
+  // Unpin superseded issue object (best-effort)
+  provider.unpin(input.issueCid).catch(() => {});
+
+  // Replace old CID with new in manifest
+  const issues = (manifest.issues ?? []).map((c) => (c === input.issueCid ? issueUpload.cid : c));
+  const updated: Manifest = {
+    ...manifest,
+    issues,
+    version: (manifest.version ?? 0) + 1,
+  };
+  const manifestUpload = await pinJSON(provider, updated, input.groupId);
+  await storeManifestCid(provider, env, input.groupId, manifestUpload.cid);
+
+  return { issueCid: issueUpload.cid, manifestCid: manifestUpload.cid };
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -853,7 +956,9 @@ export type MutationInput =
   | UpdatePRInput
   | DelegationInput
   | RevokeDelegationInput
-  | TogglePagesInput;
+  | TogglePagesInput
+  | CreateIssueInput
+  | UpdateIssueInput;
 
 export type MutationResult =
   | CommitResult
@@ -865,7 +970,8 @@ export type MutationResult =
   | PRResult
   | DelegationResult
   | RevokeDelegationResult
-  | TogglePagesResult;
+  | TogglePagesResult
+  | IssueResult;
 
 /** Dispatch a mutation by action type. */
 export async function dispatchMutation(env: Env, input: MutationInput): Promise<MutationResult> {
@@ -894,6 +1000,10 @@ export async function dispatchMutation(env: Env, input: MutationInput): Promise<
       return executeRevokeDelegation(env, input);
     case 'togglePages':
       return executeTogglePages(env, input);
+    case 'createIssue':
+      return executeCreateIssue(env, input);
+    case 'updateIssue':
+      return executeUpdateIssue(env, input);
     default:
       throw new MutationError(`Unknown action: ${(input as { action: string }).action}`, 400);
   }

@@ -76,6 +76,25 @@ type Manifest = {
     }
   >;
   importedFrom?: string;
+  issues?: CID[];
+  issueCount?: number;
+};
+type IssueComment = {
+  author: Address;
+  body: string;
+  createdAt: string;
+};
+type Issue = {
+  type: 'issue';
+  number: number;
+  title: string;
+  body: string;
+  author: Address;
+  status: 'open' | 'closed';
+  labels: string[];
+  comments: IssueComment[];
+  createdAt: string;
+  updatedAt: string;
 };
 type Delegation = {
   type: 'delegation';
@@ -98,14 +117,28 @@ type PullRequest = {
   updatedAt: string;
 };
 
-export type { CID, GroupId, ObjectType, Address, Tree, Commit, Manifest, Delegation, PullRequest };
+export type {
+  CID,
+  GroupId,
+  ObjectType,
+  Address,
+  Tree,
+  Commit,
+  Manifest,
+  Delegation,
+  PullRequest,
+  Issue,
+  IssueComment,
+};
 
 // ---------------------------------------------------------------------------
 // Upload wrappers (thin delegates to StorageProvider)
 // ---------------------------------------------------------------------------
 
 /** Upload a JSON object to IPFS. */
-export async function pinJSON<T extends Tree | Commit | Manifest | Delegation | PullRequest>(
+export async function pinJSON<
+  T extends Tree | Commit | Manifest | Delegation | PullRequest | Issue,
+>(
   provider: StorageProvider,
   data: T,
   repo: GroupId,

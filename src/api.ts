@@ -428,6 +428,58 @@ export async function listPRs(repoId: GroupId): Promise<{
   return res.json();
 }
 
+/** Create an issue. */
+export async function createIssue(
+  repoId: GroupId,
+  title: string,
+  body?: string,
+  labels?: string[],
+): Promise<{ issueCid: CID; manifestCid: CID }> {
+  const res = await apiFetch(
+    `/repos/${repoId}/issues`,
+    { method: 'POST', body: JSON.stringify({ title, body, labels }) },
+    true,
+  );
+  invalidateManifest(repoId);
+  return res.json();
+}
+
+/** Update an issue (comment, close/reopen, labels). */
+export async function updateIssue(
+  repoId: GroupId,
+  issueCid: CID,
+  update: { status?: 'open' | 'closed'; comment?: string; labels?: string[] },
+): Promise<{ issueCid: CID; manifestCid: CID }> {
+  const res = await apiFetch(
+    `/repos/${repoId}/issues/${issueCid}`,
+    { method: 'PATCH', body: JSON.stringify(update) },
+    true,
+  );
+  invalidateManifest(repoId);
+  return res.json();
+}
+
+/** List issues for a repo. */
+export async function listIssues(repoId: GroupId): Promise<{
+  issues: Array<{
+    cid: CID;
+    issue: {
+      number: number;
+      title: string;
+      body: string;
+      author: string;
+      status: string;
+      labels: string[];
+      comments: Array<{ author: string; body: string; createdAt: string }>;
+      createdAt: string;
+      updatedAt: string;
+    };
+  }>;
+}> {
+  const res = await apiFetch(`/repos/${repoId}/issues`);
+  return res.json();
+}
+
 /** Create a delegation. */
 export async function createDelegation(
   repoId: GroupId,

@@ -135,6 +135,31 @@ type Manifest = {
   keyBundle?: KeyBundle;
   /** Upstream source for imported repos (e.g. "github:owner/repo@branch"). */
   importedFrom?: string;
+  /** CIDs of issue objects. */
+  issues?: CID[];
+  /** Monotonic counter for issue numbers. */
+  issueCount?: number;
+};
+
+/** Comment on an issue. */
+type IssueComment = {
+  author: Address;
+  body: string;
+  createdAt: ISOTimestamp;
+};
+
+/** Issue tracked in a repository. */
+type Issue = {
+  type: 'issue';
+  number: number;
+  title: string;
+  body: string;
+  author: Address;
+  status: 'open' | 'closed';
+  labels: string[];
+  comments: IssueComment[];
+  createdAt: ISOTimestamp;
+  updatedAt: ISOTimestamp;
 };
 
 /** Signed delegation granting an agent scoped access. */
@@ -207,6 +232,8 @@ export type {
   KeyBundleEpoch,
   KeyBundle,
   PullRequest,
+  Issue,
+  IssueComment,
   Delegation,
   PinKeyValues,
   SignatureRecord,
