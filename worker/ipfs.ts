@@ -53,7 +53,12 @@ type Manifest = {
     writers: Address[];
     agents: Record<
       string,
-      Array<{ key: Address; scope: { actions: string[]; paths: string[] }; expires: string }>
+      Array<{
+        key: Address;
+        scope: { actions: string[]; paths: string[] };
+        expires: string;
+        delegationCid?: CID;
+      }>
     >;
   };
   visibility?: 'public' | 'private';

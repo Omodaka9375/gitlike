@@ -16,7 +16,6 @@ const DOMAIN = {
   name: 'GitLike',
   version: '1',
   chainId: CHAIN_ID,
-  verifyingContract: '0x0000000000000000000000000000000000000000' as `0x${string}`,
 } as const;
 
 const COMMIT_TYPES = {

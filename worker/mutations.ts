@@ -74,6 +74,11 @@ export async function executeCommit(env: Env, input: CommitInput): Promise<Commi
 
   const treeCid = await buildMergedTree(provider, env, input.groupId, parentTree, input.files);
 
+  // Attach delegation CID if committer is a delegated agent
+  const delegationCid = !isOwnerOrWriter(input.address, manifest)
+    ? findDelegationCid(input.address, manifest)
+    : undefined;
+
   const commit: Commit = {
     type: 'commit',
     tree: treeCid,
@@ -81,6 +86,7 @@ export async function executeCommit(env: Env, input: CommitInput): Promise<Commi
     author: input.address,
     timestamp: new Date().toISOString(),
     message: input.message,
+    ...(delegationCid ? { delegation: delegationCid } : {}),
   };
   const commitUpload = await pinJSON(provider, commit, input.groupId, { branch: input.branch });
 
@@ -441,6 +447,7 @@ export async function executeDelegation(
     key: input.agent as Address,
     scope: input.scope,
     expires,
+    delegationCid: delegationUpload.cid,
   });
 
   const updated: Manifest = {
@@ -1053,11 +1060,15 @@ function isOwnerOrWriter(address: string, manifest: Manifest): boolean {
   );
 }
 
-/** Check if an address is a delegated agent with the required action scope. */
-function isDelegatedAgent(
+/**
+ * Check if an address is a delegated agent.
+ * When action is omitted, checks only address + expiry (for read access).
+ * When action is provided, also checks scope and paths.
+ */
+export function isDelegatedAgent(
   address: string,
   manifest: Manifest,
-  action: string,
+  action?: string,
   paths?: string[],
 ): boolean {
   const lower = address.toLowerCase();
@@ -1066,6 +1077,8 @@ function isDelegatedAgent(
     for (const entry of entries) {
       if (entry.key.toLowerCase() !== lower) continue;
       if (new Date(entry.expires) <= now) continue;
+      // If no action specified, any valid delegation grants access (read)
+      if (!action) return true;
       if (!entry.scope.actions.includes(action as 'commit' | 'branch' | 'merge')) continue;
       if (paths && paths.length > 0 && !entry.scope.paths.includes('*')) {
         const allowed = entry.scope.paths;
@@ -1076,6 +1089,34 @@ function isDelegatedAgent(
     }
   }
   return false;
+}
+
+/** Find the delegation CID for an agent address. */
+function findDelegationCid(address: string, manifest: Manifest): string | undefined {
+  const lower = address.toLowerCase();
+  const now = new Date();
+  for (const entries of Object.values(manifest.acl.agents)) {
+    for (const entry of entries) {
+      if (entry.key.toLowerCase() !== lower) continue;
+      if (new Date(entry.expires) <= now) continue;
+      return entry.delegationCid;
+    }
+  }
+  return undefined;
+}
+
+/** Remove expired delegation entries from a manifest's ACL. */
+export function pruneExpiredDelegations(manifest: Manifest): Manifest {
+  const now = new Date();
+  let pruned = false;
+  const agents: typeof manifest.acl.agents = {};
+  for (const [owner, entries] of Object.entries(manifest.acl.agents)) {
+    const valid = entries.filter((e) => new Date(e.expires) > now);
+    if (valid.length !== entries.length) pruned = true;
+    if (valid.length > 0) agents[owner] = valid;
+  }
+  if (!pruned) return manifest;
+  return { ...manifest, acl: { ...manifest.acl, agents } };
 }
 
 /** Simple glob matching — supports `*` (any segment) and `**` (any depth). */

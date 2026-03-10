@@ -68,6 +68,8 @@ type AgentEntry = {
   key: Address;
   scope: DelegationScope;
   expires: ISOTimestamp;
+  /** CID of the pinned Delegation object. */
+  delegationCid?: CID;
 };
 
 /** Access-control list for a repository. */

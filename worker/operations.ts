@@ -585,6 +585,35 @@ repos.delete('/:id/delegation/:agent', requireAuth, rateLimit, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/repos/:id/delegations — list active delegations (public)
+// ---------------------------------------------------------------------------
+
+repos.get('/:id/delegations', optionalAuth, async (c) => {
+  const groupId = c.req.param('id') as GroupId;
+
+  try {
+    const provider = createStorage(c.env);
+    const manifest = await fetchManifest(provider, c.env, groupId);
+    if (!manifest) return c.json({ error: 'Repository not found.' }, 404);
+
+    const denied = checkRepoAccess(c, manifest);
+    if (denied) return denied;
+
+    const now = new Date();
+    const delegations = Object.entries(manifest.acl.agents).flatMap(([owner, entries]) =>
+      entries
+        .filter((e) => new Date(e.expires) > now)
+        .map((e) => ({ owner, agent: e.key, scope: e.scope, expires: e.expires })),
+    );
+
+    c.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
+    return c.json({ delegations });
+  } catch (err) {
+    return c.json({ error: `Failed to list delegations: ${errorMsg(err)}` }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/repos/:id/settings — update repo settings (serialized via DO)
 // ---------------------------------------------------------------------------
 

@@ -25,16 +25,5 @@ export function isOwnerOrWriter(address: string, manifest: Manifest): boolean {
   );
 }
 
-/** Check if an address is a delegated agent with any action scope. */
-export function isDelegatedAgent(address: string, manifest: Manifest): boolean {
-  const lower = address.toLowerCase();
-  const now = new Date();
-  for (const entries of Object.values(manifest.acl.agents)) {
-    for (const entry of entries) {
-      if (entry.key.toLowerCase() !== lower) continue;
-      if (new Date(entry.expires) <= now) continue;
-      return true;
-    }
-  }
-  return false;
-}
+// Re-export isDelegatedAgent from mutations (single source of truth)
+export { isDelegatedAgent } from './mutations.js';

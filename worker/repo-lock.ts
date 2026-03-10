@@ -6,8 +6,10 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env.js';
-import { dispatchMutation, MutationError } from './mutations.js';
+import { dispatchMutation, MutationError, pruneExpiredDelegations } from './mutations.js';
 import type { MutationInput } from './mutations.js';
+import { createStorage, fetchManifest, pinJSON, storeManifestCid } from './ipfs.js';
+import type { GroupId } from './ipfs.js';
 
 /**
  * Each repo gets one RepoLock instance (keyed by groupId).
@@ -25,6 +27,21 @@ export class RepoLock extends DurableObject<Env> {
     try {
       const input = await request.json<MutationInput>();
       const result = await dispatchMutation(this.env, input);
+
+      // Best-effort pruning of expired delegations after each mutation
+      try {
+        const provider = createStorage(this.env);
+        const manifest = await fetchManifest(provider, this.env, input.groupId as GroupId);
+        if (manifest) {
+          const pruned = pruneExpiredDelegations(manifest);
+          if (pruned !== manifest) {
+            const upload = await pinJSON(provider, pruned, input.groupId as GroupId);
+            await storeManifestCid(provider, this.env, input.groupId as GroupId, upload.cid);
+          }
+        }
+      } catch {
+        // Don't fail the mutation if pruning breaks
+      }
 
       return new Response(JSON.stringify(result), {
         status: 200,
