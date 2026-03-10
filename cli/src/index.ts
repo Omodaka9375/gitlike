@@ -176,8 +176,9 @@ branch
 program
   .command('switch <branch>')
   .description('Switch to a different branch')
-  .action(async (branchName: string) => {
-    await switchBranch(branchName);
+  .option('-f, --force', 'Skip uncommitted changes check')
+  .action(async (branchName: string, opts: { force?: boolean }) => {
+    await switchBranch(branchName, opts.force);
   });
 
 // ---------------------------------------------------------------------------

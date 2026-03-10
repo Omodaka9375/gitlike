@@ -4,57 +4,23 @@
 // ---------------------------------------------------------------------------
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fetchJSON, fetchBytes } from './api.js';
 import type { Tree } from './api.js';
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-/** Max concurrent file downloads. */
-const CONCURRENCY = 6;
-
-// ---------------------------------------------------------------------------
-// Concurrency limiter
-// ---------------------------------------------------------------------------
-
-/** Creates a promise-based concurrency limiter. */
-function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise<T> {
-  let active = 0;
-  const queue: Array<() => void> = [];
-
-  return <T>(fn: () => Promise<T>): Promise<T> =>
-    new Promise<T>((resolve, reject) => {
-      const run = async () => {
-        active++;
-        try {
-          resolve(await fn());
-        } catch (err) {
-          reject(err);
-        } finally {
-          active--;
-          if (queue.length > 0) queue.shift()!();
-        }
-      };
-
-      if (active < max) {
-        run();
-      } else {
-        queue.push(run);
-      }
-    });
-}
+import { createLimiter, CONCURRENCY } from './concurrency.js';
+import { collectFiles, loadIgnorePatterns } from './file-filter.js';
 
 // ---------------------------------------------------------------------------
 // Tree download
 // ---------------------------------------------------------------------------
 
-/** Recursively download a tree to a local directory. */
+/** Recursively download a tree to a local directory. Skips blobs whose CID is in skipCids. */
 export async function downloadTree(
   tree: Tree,
   dir: string,
   onFile: (filePath: string) => void,
+  skipCids?: Set<string>,
 ): Promise<void> {
   const limit = createLimiter(CONCURRENCY);
 
@@ -73,6 +39,9 @@ export async function downloadTree(
           })(),
         );
       } else {
+        // Skip download if the file CID hasn't changed
+        if (skipCids?.has(entry.cid)) continue;
+
         tasks.push(
           limit(async () => {
             const data = await fetchBytes(entry.cid);
@@ -112,5 +81,20 @@ export async function buildTreeIndex(treeCid: string): Promise<Map<string, strin
 
   const tree = await fetchJSON<Tree>(treeCid);
   await walk(tree, '');
+  return index;
+}
+
+/** Build a sha256-based local hash index from files on disk. */
+export function buildLocalHashIndex(root: string): Record<string, string> {
+  const patterns = loadIgnorePatterns(root);
+  const files = collectFiles(root, patterns);
+  const index: Record<string, string> = {};
+  for (const relPath of files) {
+    const fullPath = path.join(root, relPath);
+    if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) continue;
+    const content = fs.readFileSync(fullPath);
+    const hash = crypto.createHash('sha256').update(content).digest('hex');
+    index[relPath] = `sha256:${hash}`;
+  }
   return index;
 }

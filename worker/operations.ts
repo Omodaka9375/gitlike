@@ -309,6 +309,7 @@ repos.post('/:id/commit', requireAuth, rateLimit, async (c) => {
     message: string;
     files: StagedFile[];
     signature?: string;
+    expectedHead?: string;
   }>();
 
   // Validate inputs before dispatching to DO
@@ -339,6 +340,7 @@ repos.post('/:id/commit', requireAuth, rateLimit, async (c) => {
     message: body.message,
     files: body.files,
     signature: body.signature,
+    expectedHead: body.expectedHead,
   });
 
   return new Response(doRes.body, {

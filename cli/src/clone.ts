@@ -6,8 +6,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fetchManifest, fetchJSON } from './api.js';
-import { writeRepoState, writeLocalIndex } from './config.js';
-import { downloadTree, buildTreeIndex } from './tree-io.js';
+import { writeRepoState, writeLocalIndex, writeCidIndex } from './config.js';
+import { downloadTree, buildTreeIndex, buildLocalHashIndex } from './tree-io.js';
 import type { Commit, Tree } from './api.js';
 
 /** Clone a repo by groupId into a local directory. */
@@ -47,10 +47,11 @@ export async function cloneRepo(groupId: string, targetDir?: string): Promise<vo
     if (count % 10 === 0) process.stdout.write(`\r  Downloaded ${count} files...`);
   });
 
-  // Write repo state + local index for change detection
+  // Write repo state + CID index + sha256 hash index
   writeRepoState({ groupId, name: manifest.name, branch, head: headCid }, root);
-  const index = await buildTreeIndex(commit.tree);
-  writeLocalIndex(Object.fromEntries(index), root);
+  const cidIndex = await buildTreeIndex(commit.tree);
+  writeCidIndex(Object.fromEntries(cidIndex), root);
+  writeLocalIndex(buildLocalHashIndex(root), root);
 
-  console.log(`\r✓ Cloned ${count} files into ${dir}/`);
+  console.log(`\r\u2713 Cloned ${count} files into ${dir}/`);
 }

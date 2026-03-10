@@ -142,10 +142,11 @@ export async function commitFiles(
   branch: string,
   message: string,
   files: Array<{ path: string; cid: string; size: number }>,
+  expectedHead?: string,
 ): Promise<{ commitCid: string; treeCid: string; manifestCid: string }> {
   const res = await apiFetch(
     `/repos/${repoId}/commit`,
-    { method: 'POST', body: JSON.stringify({ branch, message, files }) },
+    { method: 'POST', body: JSON.stringify({ branch, message, files, expectedHead }) },
     true,
   );
   return res.json() as Promise<{ commitCid: string; treeCid: string; manifestCid: string }>;

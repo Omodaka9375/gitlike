@@ -10,11 +10,12 @@ import {
   requireAuth,
   writeRepoState,
   writeLocalIndex,
+  writeCidIndex,
   readLocalIndex,
 } from './config.js';
 import { fetchManifest, fetchJSON, createBranch as apiBranch } from './api.js';
 import type { Commit, Tree } from './api.js';
-import { downloadTree, buildTreeIndex } from './tree-io.js';
+import { downloadTree, buildTreeIndex, buildLocalHashIndex } from './tree-io.js';
 import { collectFiles, loadIgnorePatterns } from './file-filter.js';
 
 // ---------------------------------------------------------------------------
@@ -111,9 +112,21 @@ export async function createNewBranch(name: string): Promise<void> {
   console.log(`✓ Branch "${name}" created.`);
 }
 
-/** Switch to a different branch and pull files. */
-export async function switchBranch(name: string): Promise<void> {
+/** Switch to a different branch and pull files. Use --force to skip dirty check. */
+export async function switchBranch(name: string, force = false): Promise<void> {
   const { root, state } = requireRepo();
+
+  // Check for uncommitted changes unless --force
+  if (!force) {
+    const { added, modified, deleted } = detectChanges(root);
+    if (added.length > 0 || modified.length > 0 || deleted.length > 0) {
+      console.error(
+        `You have uncommitted changes (${added.length}A ${modified.length}M ${deleted.length}D).`,
+      );
+      console.error('Push or discard them first, or use: gitlike switch --force <branch>');
+      process.exit(1);
+    }
+  }
 
   const manifest = await fetchManifest(state.groupId);
   if (!manifest) {
@@ -137,21 +150,26 @@ export async function switchBranch(name: string): Promise<void> {
     count++;
   });
 
-  // Update state + local index
+  // Update state + CID index + sha256 hash index
   writeRepoState({ ...state, branch: name, head: headCid }, root);
-  const index = await buildTreeIndex(commit.tree);
-  writeLocalIndex(Object.fromEntries(index), root);
+  const cidIndex = await buildTreeIndex(commit.tree);
+  writeCidIndex(Object.fromEntries(cidIndex), root);
+  writeLocalIndex(buildLocalHashIndex(root), root);
 
-  console.log(`✓ Switched to ${name}. ${count} files updated.`);
+  console.log(`\u2713 Switched to ${name}. ${count} files updated.`);
 }
 
 // ---------------------------------------------------------------------------
 // Diff — file-level change summary
+// Future enhancement: add content-level (line) diffs.
 // ---------------------------------------------------------------------------
 
-/** Show added/modified/deleted files compared to the local index. */
-export function showDiff(): void {
-  const { root } = requireRepo();
+/** Detect added/modified/deleted files compared to the local index. */
+export function detectChanges(root: string): {
+  added: string[];
+  modified: string[];
+  deleted: string[];
+} {
   const localIndex = readLocalIndex(root);
   const patterns = loadIgnorePatterns(root);
   const localFiles = collectFiles(root, patterns);
@@ -184,6 +202,14 @@ export function showDiff(): void {
   for (const p of Object.keys(localIndex)) {
     if (!seen.has(p)) deleted.push(p);
   }
+
+  return { added, modified, deleted };
+}
+
+/** Show added/modified/deleted files compared to the local index. */
+export function showDiff(): void {
+  const { root } = requireRepo();
+  const { added, modified, deleted } = detectChanges(root);
 
   if (added.length === 0 && modified.length === 0 && deleted.length === 0) {
     console.log('No changes.');

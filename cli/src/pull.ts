@@ -6,8 +6,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fetchManifest, fetchJSON } from './api.js';
-import { requireRepo, writeRepoState, writeLocalIndex } from './config.js';
-import { downloadTree, buildTreeIndex } from './tree-io.js';
+import {
+  requireRepo,
+  writeRepoState,
+  writeLocalIndex,
+  readCidIndex,
+  writeCidIndex,
+} from './config.js';
+import { downloadTree, buildTreeIndex, buildLocalHashIndex } from './tree-io.js';
 import type { Commit, Tree } from './api.js';
 
 // ---------------------------------------------------------------------------
@@ -51,21 +57,37 @@ export async function pullRepo(): Promise<void> {
   const remoteIndex = await buildTreeIndex(commit.tree);
   const remotePaths = new Set(remoteIndex.keys());
 
+  // Build skip set from local CID index for incremental download
+  const oldCidIndex = readCidIndex(root);
+  const skipCids = new Set<string>();
+  for (const [filePath, cid] of remoteIndex) {
+    if (oldCidIndex[filePath] === cid) skipCids.add(cid);
+  }
+
   let downloaded = 0;
-  await downloadTree(tree, root, () => {
-    downloaded++;
-  });
+  await downloadTree(
+    tree,
+    root,
+    () => {
+      downloaded++;
+    },
+    skipCids,
+  );
+
+  const skipped = remoteIndex.size - downloaded;
 
   // Remove local files not present in remote tree
   const deleted = cleanStaleFiles(root, remotePaths);
 
-  // Update state + local index
+  // Update state + CID index + sha256 hash index
   writeRepoState({ ...state, head: remoteCid }, root);
-  writeLocalIndex(Object.fromEntries(remoteIndex), root);
+  writeCidIndex(Object.fromEntries(remoteIndex), root);
+  writeLocalIndex(buildLocalHashIndex(root), root);
 
-  const parts = [`✓ Updated ${downloaded} files`];
-  if (deleted > 0) parts.push(`removed ${deleted} stale files`);
-  parts.push(`HEAD is now ${remoteCid.slice(0, 12)}…`);
+  const parts = [`\u2713 Updated ${downloaded} files`];
+  if (skipped > 0) parts.push(`${skipped} unchanged`);
+  if (deleted > 0) parts.push(`removed ${deleted} stale`);
+  parts.push(`HEAD is now ${remoteCid.slice(0, 12)}\u2026`);
   console.log(parts.join(', ') + '.');
 }
 

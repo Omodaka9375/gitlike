@@ -31,6 +31,8 @@ export type CommitInput = {
   message: string;
   files: StagedFile[];
   signature?: string;
+  /** If provided, reject if branch HEAD doesn't match (stale-push guard). */
+  expectedHead?: string;
 };
 
 export type CommitResult = {
@@ -61,6 +63,11 @@ export async function executeCommit(env: Env, input: CommitInput): Promise<Commi
 
   const parentCid = manifest.branches[input.branch];
   if (!parentCid) throw new MutationError(`Branch "${input.branch}" not found.`, 404);
+
+  // Stale-push guard: reject if caller expected a different HEAD
+  if (input.expectedHead && input.expectedHead !== parentCid) {
+    throw new MutationError('Remote HEAD has advanced. Pull before pushing.', 409);
+  }
 
   const parentCommit = await fetchJSON<Commit>(env, parentCid);
   const parentTree = await fetchJSON<Tree>(env, parentCommit.tree);

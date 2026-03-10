@@ -13,8 +13,9 @@ import {
   readLocalIndex,
   writeLocalIndex,
 } from './config.js';
-import { uploadFile, commitFiles } from './api.js';
+import { uploadFile, commitFiles, fetchManifest } from './api.js';
 import { collectFiles, loadIgnorePatterns } from './file-filter.js';
+import { createLimiter, CONCURRENCY } from './concurrency.js';
 
 /** Push local changes as a new commit. */
 export async function pushRepo(message: string, filePaths?: string[]): Promise<void> {
@@ -22,6 +23,18 @@ export async function pushRepo(message: string, filePaths?: string[]): Promise<v
   const { root, state } = requireRepo();
 
   console.log(`Pushing to ${state.name} (${state.branch})...`);
+
+  // Check for stale HEAD before doing any work
+  const manifest = await fetchManifest(state.groupId);
+  if (!manifest) {
+    console.error('Repository not found on remote.');
+    process.exit(1);
+  }
+  const remoteHead = manifest.branches[state.branch];
+  if (remoteHead && remoteHead !== state.head) {
+    console.error(`Remote HEAD has advanced. Run: gitlike pull`);
+    process.exit(1);
+  }
 
   // Load ignore patterns and local change-tracking index
   const patterns = loadIgnorePatterns(root);
@@ -60,23 +73,26 @@ export async function pushRepo(message: string, filePaths?: string[]): Promise<v
 
   console.log(`  ${changed.length} changed file(s) to upload (${allLocal.length} total)`);
 
-  // Upload changed files
+  // Upload changed files in parallel
+  const limit = createLimiter(CONCURRENCY);
   const staged: Array<{ path: string; cid: string; size: number }> = [];
   let uploaded = 0;
 
-  for (const relPath of changed) {
-    const fullPath = path.join(root, relPath);
-    const content = new Uint8Array(fs.readFileSync(fullPath));
-    const fileName = path.basename(relPath);
-
-    process.stdout.write(`\r  Uploading ${++uploaded}/${changed.length}: ${relPath}`);
-    const { cid, size } = await uploadFile(state.groupId, fileName, content);
-    staged.push({ path: relPath, cid, size });
-  }
+  const tasks = changed.map((relPath) =>
+    limit(async () => {
+      const fullPath = path.join(root, relPath);
+      const content = new Uint8Array(fs.readFileSync(fullPath));
+      const fileName = path.basename(relPath);
+      const { cid, size } = await uploadFile(state.groupId, fileName, content);
+      staged.push({ path: relPath, cid, size });
+      process.stdout.write(`\r  Uploaded ${++uploaded}/${changed.length}`);
+    }),
+  );
+  await Promise.all(tasks);
 
   process.stdout.write('\r  Committing...                                    \n');
 
-  const result = await commitFiles(state.groupId, state.branch, message, staged);
+  const result = await commitFiles(state.groupId, state.branch, message, staged, state.head);
 
   // Update state
   writeRepoState({ ...state, head: result.commitCid }, root);
@@ -88,5 +104,5 @@ export async function pushRepo(message: string, filePaths?: string[]): Promise<v
   }
   writeLocalIndex(newIndex, root);
 
-  console.log(`✓ Committed ${staged.length} files. ${result.commitCid.slice(0, 12)}…`);
+  console.log(`\u2713 Committed ${staged.length} files. ${result.commitCid.slice(0, 12)}\u2026`);
 }

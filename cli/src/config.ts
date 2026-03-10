@@ -144,3 +144,27 @@ export function writeLocalIndex(index: LocalIndex, root?: string): void {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify(index, null, 2) + '\n');
 }
+
+// ---------------------------------------------------------------------------
+// CID index — tracks { path → cid } for incremental pull
+// ---------------------------------------------------------------------------
+
+export type CidIndex = Record<string, string>;
+
+export function readCidIndex(root?: string): CidIndex {
+  const repoRoot = root ?? findRepoRoot();
+  if (!repoRoot) return {};
+  try {
+    const raw = fs.readFileSync(path.join(repoRoot, LOCAL_DIR, 'cids.json'), 'utf-8');
+    return JSON.parse(raw) as CidIndex;
+  } catch {
+    return {};
+  }
+}
+
+export function writeCidIndex(index: CidIndex, root?: string): void {
+  const repoRoot = root ?? process.cwd();
+  const dir = path.join(repoRoot, LOCAL_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'cids.json'), JSON.stringify(index, null, 2) + '\n');
+}
