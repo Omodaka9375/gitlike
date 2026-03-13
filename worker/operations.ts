@@ -103,6 +103,9 @@ repos.get('/', optionalAuth, async (c) => {
       );
     });
 
+    // Newest repos first
+    visible.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+
     const page = visible.slice(offset, offset + limit);
     const nextOffset = offset + limit < visible.length ? offset + limit : null;
 
@@ -342,6 +345,11 @@ repos.post('/:id/commit', requireAuth, rateLimit, async (c) => {
     signature: body.signature,
     expectedHead: body.expectedHead,
   });
+
+  // Bump updatedAt so the repo surfaces at the top of the list
+  if (doRes.ok) {
+    updateIndexEntry(c.env, groupId, {}).catch(() => {});
+  }
 
   return new Response(doRes.body, {
     status: doRes.status,

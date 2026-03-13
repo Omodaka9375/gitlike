@@ -61,7 +61,7 @@ crons = ["0 3 * * *", "0 */6 * * *"]
 
 [vars]
 ALLOWED_ORIGIN = "https://gitlike.dev"
-PLATFORM_ADMIN = "0x3ef33508F8ed14cD22802a8DFAde560A5bD98fCA"
+PLATFORM_ADMIN = "0xF3A7D00C2D8885B7f1eBfBC72a2EeD30380dd66f"
 
 # ---------------------------------------------------------------------------
 # Staging environment — deploy with: pnpm run deploy:staging

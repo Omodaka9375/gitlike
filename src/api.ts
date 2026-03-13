@@ -756,9 +756,9 @@ async function importFromGitHubImpl(
   const allBlobs = treeData.tree.filter((i) => i.type === 'blob');
   const blobs = await filterIgnored(
     allBlobs.map((i) => i.path),
-    async () => {
+    async (name) => {
       const raw = await fetch(
-        `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${branch}/.gitignore`,
+        `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${branch}/${name}`,
       );
       return raw.ok ? raw.text() : null;
     },
@@ -803,9 +803,9 @@ async function importFromGitLab(
     page++;
   }
 
-  const blobs = await filterIgnored(allPaths, async () => {
+  const blobs = await filterIgnored(allPaths, async (name) => {
     const raw = await fetch(
-      `https://gitlab.com/api/v4/projects/${projectPath}/repository/files/${encodeURIComponent('.gitignore')}/raw?ref=${encodeURIComponent(branch)}`,
+      `https://gitlab.com/api/v4/projects/${projectPath}/repository/files/${encodeURIComponent(name)}/raw?ref=${encodeURIComponent(branch)}`,
     );
     return raw.ok ? raw.text() : null;
   });
@@ -878,16 +878,19 @@ async function uploadAndCommit(
   return { groupId, manifestCid };
 }
 
-/** Filter file paths using .gitignore rules fetched via the provided loader. */
+/** Filter file paths using ignore rules (.gitlikeignore takes priority over .gitignore). */
 async function filterIgnored(
   paths: string[],
-  loadGitignore: () => Promise<string | null>,
+  loadFile: (name: string) => Promise<string | null>,
 ): Promise<string[]> {
-  const hasGitignore = paths.includes('.gitignore');
   let patterns: string[] = [];
-  if (hasGitignore) {
+  const hasGitlikeignore = paths.includes('.gitlikeignore');
+  const hasGitignore = paths.includes('.gitignore');
+  if (hasGitlikeignore || hasGitignore) {
     try {
-      const text = await loadGitignore();
+      const text = hasGitlikeignore
+        ? await loadFile('.gitlikeignore')
+        : await loadFile('.gitignore');
       if (text) patterns = parseGitignore(text);
     } catch {
       /* ignore */
@@ -994,11 +997,11 @@ export async function syncFromUpstream(
 
   // Apply .gitignore filter
   const upstreamPaths = upstreamBlobs.map((b) => b.path);
-  const filtered = await filterIgnored(upstreamPaths, async () => {
+  const filtered = await filterIgnored(upstreamPaths, async (name) => {
     const url =
       source.platform === 'github'
-        ? `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/.gitignore`
-        : `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${source.owner}/${source.repo}`)}/repository/files/${encodeURIComponent('.gitignore')}/raw?ref=${encodeURIComponent(source.branch)}`;
+        ? `https://raw.githubusercontent.com/${source.owner}/${source.repo}/${source.branch}/${name}`
+        : `https://gitlab.com/api/v4/projects/${encodeURIComponent(`${source.owner}/${source.repo}`)}/repository/files/${encodeURIComponent(name)}/raw?ref=${encodeURIComponent(source.branch)}`;
     const raw = await fetch(url);
     return raw.ok ? raw.text() : null;
   });

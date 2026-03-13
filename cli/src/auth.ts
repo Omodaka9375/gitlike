@@ -57,9 +57,11 @@ export async function browserLogin(): Promise<void> {
             console.log(`\n✓ Authenticated as ${data.address}`);
             console.log('  You can close the browser tab.');
 
+            clearTimeout(timeout);
             server.close();
             resolve();
           } catch (err) {
+            clearTimeout(timeout);
             res.writeHead(400, corsHeaders);
             res.end('Invalid request');
             server.close();
@@ -96,7 +98,7 @@ export async function browserLogin(): Promise<void> {
     });
 
     // Timeout after 5 minutes
-    setTimeout(
+    const timeout = setTimeout(
       () => {
         server.close();
         reject(new Error('Auth timed out after 5 minutes.'));

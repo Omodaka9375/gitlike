@@ -691,7 +691,7 @@ async function handleUpload(overlay: HTMLElement, route: Route): Promise<void> {
       status.className = 'modal-status';
     }
 
-    // Load .gitignore patterns from the repo's current tree (if any)
+    // Load ignore patterns from the repo's current tree (.gitlikeignore takes priority)
     let ignorePatterns: string[] = [];
     try {
       const manifest = await fetchManifest(route.groupId);
@@ -699,7 +699,8 @@ async function handleUpload(overlay: HTMLElement, route: Route): Promise<void> {
       if (headCid) {
         const commit = await fetchJSON<Commit>(headCid);
         const tree = await fetchJSON<Tree>(commit.tree);
-        const gi = tree.entries.find((e) => e.kind === 'blob' && e.name === '.gitignore');
+        const gli = tree.entries.find((e) => e.kind === 'blob' && e.name === '.gitlikeignore');
+        const gi = gli ?? tree.entries.find((e) => e.kind === 'blob' && e.name === '.gitignore');
         if (gi) {
           const text = await fetchText(gi.cid);
           ignorePatterns = parseGitignore(text);
@@ -709,16 +710,18 @@ async function handleUpload(overlay: HTMLElement, route: Route): Promise<void> {
       /* best-effort */
     }
 
-    // Also check uploaded files for a .gitignore (folder upload scenario)
+    // Also check uploaded files for ignore file (folder upload scenario)
     const raw = allFiles;
     if (ignorePatterns.length === 0) {
-      const uploadedGi = raw.find((f) => {
-        const p = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
-        return p === '.gitignore' || p.endsWith('/.gitignore');
-      });
-      if (uploadedGi) {
+      const findUploaded = (name: string) =>
+        raw.find((f) => {
+          const p = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+          return p === name || p.endsWith('/' + name);
+        });
+      const uploadedIgnore = findUploaded('.gitlikeignore') ?? findUploaded('.gitignore');
+      if (uploadedIgnore) {
         try {
-          ignorePatterns = parseGitignore(await uploadedGi.text());
+          ignorePatterns = parseGitignore(await uploadedIgnore.text());
         } catch {
           /* best-effort */
         }
