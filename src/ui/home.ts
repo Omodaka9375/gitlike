@@ -471,15 +471,32 @@ export function repoCards(
     );
 
     const repoSlug = slugify(name);
+    const cardChildren: HTMLElement[] = [
+      el('div', { cls: 'repo-card-header', children: headerChildren }),
+      el('p', { cls: 'repo-card-desc', text: desc }),
+      ownerRow,
+      el('div', { cls: 'repo-card-meta', children: metaChildren }),
+    ];
+
+    if (!isPrivate && repo.manifest?.pages?.enabled && repo.manifest.pages.slug) {
+      const pagesUrl = `https://app.gitlike.dev/${repo.manifest.pages.slug}/`;
+      const pagesLink = el('span', {
+        cls: 'repo-card-pages',
+        text: `\uD83C\uDF10 ${pagesUrl.replace('https://', '')}`,
+        attrs: { title: pagesUrl },
+        onclick: (e: Event) => {
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(pagesUrl, '_blank', 'noopener');
+        },
+      });
+      cardChildren.push(pagesLink);
+    }
+
     return el('a', {
       cls: 'repo-card',
       attrs: { href: buildPath(repoSlug, defaultBranch), 'data-slug': repoSlug },
-      children: [
-        el('div', { cls: 'repo-card-header', children: headerChildren }),
-        el('p', { cls: 'repo-card-desc', text: desc }),
-        ownerRow,
-        el('div', { cls: 'repo-card-meta', children: metaChildren }),
-      ],
+      children: cardChildren,
     });
   });
 }
