@@ -19,8 +19,6 @@ workers_dev = false
 # Serve the SPA from public/
 [assets]
 directory = "public"
-not_found_handling = "single-page-application"
-run_worker_first = ["/api/*", "/.well-known/*"]
 
 # KV namespace for sessions and rate limiting
 # Replace IDs after running `wrangler kv namespace create SESSIONS`

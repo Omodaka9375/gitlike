@@ -843,15 +843,23 @@ const STATIC_ROUTES = new Set([
 
 app.get('*', async (c) => {
   const pathname = new URL(c.req.url).pathname;
-  const match = REPO_PATH_RE.exec(pathname);
 
   // ASSETS binding is unavailable in wrangler dev — return 404 for non-API catch-all
   if (!c.env.ASSETS) return c.body('Not found', 404);
 
-  // Fast path — non-repo route, serve plain SPA shell
+  // Serve known static assets directly (paths with file extensions)
+  if (pathname !== '/' && /\.[a-z0-9]+$/i.test(pathname)) {
+    const assetRes = await c.env.ASSETS.fetch(c.req.raw);
+    if (assetRes.ok) return assetRes;
+    // Static file not found — return 404
+    return c.body('Not found', 404);
+  }
+
+  const match = REPO_PATH_RE.exec(pathname);
+
+  // Non-repo route: serve plain SPA shell
   if (!match || STATIC_ROUTES.has(match[1].toLowerCase())) {
-    const url = new URL('/index.html', c.req.url);
-    return c.env.ASSETS.fetch(new Request(url));
+    return c.env.ASSETS.fetch(new Request(new URL('/index.html', c.req.url)));
   }
 
   const slugOrId = match[1];
