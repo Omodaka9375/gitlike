@@ -806,7 +806,7 @@ app.get('/api/og/:groupId', async (c) => {
     const manifest = await fetchManifest(provider, c.env, groupId);
     if (!manifest) return c.body('Not found', 404);
     if (manifest.visibility === 'private') return c.body('Not found', 404);
-    const png = renderOgPng(manifest);
+    const png = await renderOgPng(manifest, c.env.SESSIONS);
     const pngBuf = new Uint8Array(png) as Uint8Array<ArrayBuffer>;
 
     // Cache in KV for 24 hours

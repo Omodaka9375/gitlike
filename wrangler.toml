@@ -17,8 +17,12 @@ compatibility_date = "2026-03-05"
 workers_dev = false
 
 # Serve the SPA from public/
+# Worker runs first for all requests to enable dynamic OG injection for repo URLs.
+# Static assets are served via c.env.ASSETS in the worker catch-all.
 [assets]
 directory = "public"
+binding = "ASSETS"
+run_worker_first = true
 
 # KV namespace for sessions and rate limiting
 # Replace IDs after running `wrangler kv namespace create SESSIONS`
