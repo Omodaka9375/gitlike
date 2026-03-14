@@ -849,10 +849,15 @@ app.get('*', async (c) => {
 
   // Serve known static assets directly (paths with file extensions)
   if (pathname !== '/' && /\.[a-z0-9]+$/i.test(pathname)) {
-    const assetRes = await c.env.ASSETS.fetch(c.req.raw);
-    if (assetRes.ok) return assetRes;
-    // Static file not found — return 404
-    return c.body('Not found', 404);
+    try {
+      const assetReq = new Request(new URL(pathname, c.req.url), { method: 'GET' });
+      const assetRes = await c.env.ASSETS.fetch(assetReq);
+      if (assetRes.ok) return assetRes;
+    } catch {
+      // ASSETS fetch failed — fall through to SPA shell
+    }
+    // Not a real static file — could be a repo path like /slug/main/file.ts
+    // Fall through to SPA routing instead of hard 404
   }
 
   const match = REPO_PATH_RE.exec(pathname);

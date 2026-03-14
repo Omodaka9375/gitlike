@@ -235,6 +235,7 @@ let _routeHandler: RouteHandler | null = null;
 /** Navigate to a path via pushState and trigger the route handler. */
 export function navigate(path: string): void {
   history.pushState(null, '', path);
+  window.scrollTo(0, 0);
   if (_routeHandler) _routeHandler(parsePath(path));
 }
 
