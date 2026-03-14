@@ -285,7 +285,9 @@ export default {
     }
 
     const slug = parts[0].toLowerCase();
-    const filePath = parts.slice(1).join('/') || 'index.html';
+    const rawFilePath = parts.slice(1).join('/');
+    const filePath = rawFilePath || 'index.html';
+    const needsTrailingSlash = !url.pathname.endsWith('/') && !hasExtension(rawFilePath);
     const cache: TreeCache = new Map();
 
     try {
@@ -332,6 +334,7 @@ export default {
       // 5. Resolve file in tree
       let blobCid = await resolveFile(env, treeCid, filePath, cache);
       let servePath = filePath;
+      let servingIndex = !rawFilePath && !!blobCid;
 
       // Fallback: clean URL — try path.html (e.g. /about → about.html)
       if (!blobCid && !hasExtension(filePath)) {
@@ -342,7 +345,10 @@ export default {
       // Fallback: try path/index.html (directory index)
       if (!blobCid && !filePath.endsWith('/index.html')) {
         blobCid = await resolveFile(env, treeCid, filePath + '/index.html', cache);
-        if (blobCid) servePath = filePath + '/index.html';
+        if (blobCid) {
+          servePath = filePath + '/index.html';
+          servingIndex = true;
+        }
       }
 
       // _redirects-based routing (e.g. /* /index.html 200 for SPAs)
@@ -398,14 +404,23 @@ export default {
         return htmlResponse(notFoundHtml(slug), 404);
       }
 
-      // 6. ETag / conditional request
+      // 6. Redirect to add trailing slash when serving index.html
+      //    so relative asset paths (./assets/...) resolve correctly.
+      if (needsTrailingSlash && servingIndex) {
+        return new Response(null, {
+          status: 301,
+          headers: { Location: url.pathname + '/' },
+        });
+      }
+
+      // 7. ETag / conditional request
       const etag = `"${blobCid}"`;
       const ifNoneMatch = request.headers.get('If-None-Match');
       if (ifNoneMatch === etag) {
         return new Response(null, { status: 304, headers: { ETag: etag } });
       }
 
-      // 7. Serve the file
+      // 8. Serve the file
       const ct = mimeType(servePath);
       const isHtml = ct.startsWith('text/html');
       return serveBlob(env, blobCid, ct, 200, blobCid, isHead, isHtml);
