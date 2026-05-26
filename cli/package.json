@@ -12,6 +12,15 @@
   },
   "keywords": ["gitlike", "ipfs", "vcs", "cli"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Omodaka9375/gitlike"
+  },
+  "homepage": "https://gitlike.dev",
+  "files": ["bin/", "README.md"],
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "commander": "^13.1.0",
     "open": "^10.1.2"
