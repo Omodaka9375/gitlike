@@ -129,6 +129,7 @@ describe('putPlatformSettings', () => {
       platformName: 'Test',
       platformDescription: 'Desc',
       retentionDepth: 50,
+      pinnedRepo: '',
     };
     await putPlatformSettings(kv, original);
     const retrieved = await getPlatformSettings(kv);

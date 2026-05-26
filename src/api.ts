@@ -677,7 +677,7 @@ export async function registerSignature(
   );
 }
 
-/** Walk commit history from a starting CID. Returns commits with their CIDs. */
+/** Walk commit history (first-parent only; merge second parents are not traversed). */
 export async function walkCommitHistory(
   startCid: CID,
   depth = MAX_LOG_DEPTH,

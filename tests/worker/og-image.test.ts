@@ -1,4 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Mock @cf-wasm/resvg/workerd which contains a .wasm file that Node/Vitest can't load
+vi.mock('@cf-wasm/resvg/workerd', () => ({
+  Resvg: class {
+    constructor() {}
+    render() {
+      return { asPng: () => new Uint8Array([137, 80, 78, 71]) };
+    }
+  },
+}));
+
 import { generateRepoOgImage } from '../../worker/og-image.js';
 import type { Manifest } from '../../worker/ipfs.js';
 
@@ -93,7 +104,7 @@ describe('generateRepoOgImage', () => {
     const svg = generateRepoOgImage(makeManifest({ description: longDesc }));
     // Should not contain the full 200 chars
     expect(svg).not.toContain(longDesc);
-    expect(svg).toContain('…');
+    expect(svg).toContain('...');
   });
 
   it('shows abbreviated owner address', () => {
