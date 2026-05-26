@@ -1256,7 +1256,7 @@ export function renderCli(root: HTMLElement): void {
     }),
 
     // Installation
-    codeBlock('Installation', 'npm install -g gitlike\n# or\npnpm add -g gitlike'),
+    codeBlock('Installation', 'npm install -g @omodaka/gitlike-cli\n# or\npnpm add -g @omodaka/gitlike-cli'),
 
     // Authentication
     el('div', {
