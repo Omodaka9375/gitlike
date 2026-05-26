@@ -536,7 +536,8 @@ repos.post('/:id/fork', requireAuth, rateLimit, async (c) => {
     const manifest = await fetchManifest(provider, c.env, groupId);
     if (!manifest) return c.json({ error: 'Repository not found.' }, 404);
 
-    const repoId = await provider.createRepo(`${manifest.name} (fork)`);
+    const forkName = `${manifest.name}-fork`;
+    const repoId = await provider.createRepo(forkName);
     const forkedManifest: typeof manifest = {
       ...manifest,
       acl: { owners: [address], writers: [address], agents: {} },
@@ -549,7 +550,7 @@ repos.post('/:id/fork', requireAuth, rateLimit, async (c) => {
     // Maintain KV repo index for the fork
     await addToIndex(c.env, {
       groupId: repoId,
-      name: `${manifest.name} (fork)`,
+      name: forkName,
       description: manifest.description,
       owner: address,
       writers: [address.toLowerCase()],
@@ -557,12 +558,18 @@ repos.post('/:id/fork', requireAuth, rateLimit, async (c) => {
       updatedAt: new Date().toISOString(),
     });
 
-    // Register slug mapping for forked repo
-    const forkSlug = slugify(`${manifest.name} (fork)`);
-    if (forkSlug) {
-      const existing = await getSlug(c.env, forkSlug);
-      if (!existing) await setSlug(c.env, forkSlug, repoId);
+    // Register slug mapping for forked repo (retry with suffix on collision)
+    let forkSlug = slugify(forkName);
+    let attempt = 0;
+    while (forkSlug && (await getSlug(c.env, forkSlug))) {
+      attempt++;
+      forkSlug = slugify(`${manifest.name}-fork-${attempt}`);
+      if (attempt > 10) {
+        forkSlug = '';
+        break;
+      }
     }
+    if (forkSlug) await setSlug(c.env, forkSlug, repoId);
 
     return c.json({ groupId: repoId, manifestCid: upload.cid }, 201);
   } catch (err) {
@@ -766,6 +773,11 @@ repos.delete('/:id', requireAuth, rateLimit, async (c) => {
     // Remove slug mapping
     const slug = slugify(manifest.name);
     if (slug) await deleteSlug(c.env, slug);
+
+    // Clean up Pages slug
+    if (manifest.pages?.slug) {
+      await c.env.SESSIONS.delete(`pages:${manifest.pages.slug}`);
+    }
 
     return c.json({ deleted: true });
   } catch (err) {
@@ -1144,7 +1156,8 @@ function esc(s: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/'/g, '&apos;');
+    .replace(/'/g, '&apos;')
+    .replace(/"/g, '&quot;');
 }
 
 // ---------------------------------------------------------------------------

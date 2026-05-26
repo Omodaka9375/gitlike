@@ -267,6 +267,33 @@ export async function executeMerge(env: Env, input: MergeInput): Promise<MergeRe
     branches: { ...manifest.branches, [input.target]: commitUpload.cid },
     version: (manifest.version ?? 0) + 1,
   };
+
+  // Auto-merge matching open PRs (best-effort)
+  const prCids = updated.pullRequests ?? [];
+  const newPrCids = [...prCids];
+  for (let i = 0; i < prCids.length; i++) {
+    try {
+      const pr = await fetchJSON<PullRequest>(env, prCids[i]);
+      if (
+        pr.status === 'open' &&
+        pr.sourceBranch === input.source &&
+        pr.targetBranch === input.target
+      ) {
+        const mergedPr: PullRequest = {
+          ...pr,
+          status: 'merged',
+          updatedAt: new Date().toISOString(),
+        };
+        const prUpload = await pinJSON(provider, mergedPr, input.groupId);
+        newPrCids[i] = prUpload.cid;
+        provider.unpin(prCids[i]).catch(() => {});
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+  updated.pullRequests = newPrCids;
+
   const manifestUpload = await pinJSON(provider, updated, input.groupId);
   await storeManifestCid(provider, env, input.groupId, manifestUpload.cid);
 
@@ -900,6 +927,11 @@ export async function executeCreateIssue(env: Env, input: CreateIssueInput): Pro
   const manifest = await fetchManifest(provider, env, input.groupId);
   if (!manifest) throw new MutationError('Repository not found.', 404);
 
+  // Private repos require owner/writer access to create issues
+  if (manifest.visibility === 'private' && !isOwnerOrWriter(input.address, manifest)) {
+    throw new MutationError('Not authorized.', 403);
+  }
+
   const now = new Date().toISOString();
   const number = (manifest.issueCount ?? 0) + 1;
   const issue: Issue = {
@@ -934,6 +966,15 @@ export async function executeUpdateIssue(env: Env, input: UpdateIssueInput): Pro
 
   const manifest = await fetchManifest(provider, env, input.groupId);
   if (!manifest) throw new MutationError('Repository not found.', 404);
+
+  // Private repos require owner/writer access
+  if (manifest.visibility === 'private' && !isOwnerOrWriter(input.address, manifest)) {
+    throw new MutationError('Not authorized.', 403);
+  }
+  // Status and label changes are restricted to owners/writers
+  if ((input.status || input.labels) && !isOwnerOrWriter(input.address, manifest)) {
+    throw new MutationError('Only owners/writers can change issue status or labels.', 403);
+  }
 
   const existing = await fetchJSON<Issue>(env, input.issueCid);
   const now = new Date().toISOString();
