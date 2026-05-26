@@ -679,7 +679,8 @@ app.get('/api/avatar/:address', async (c) => {
 // IPFS gateway proxy — avoids 403s from restricted dedicated gateways
 app.get('/api/ipfs/:cid', async (c) => {
   const cid = c.req.param('cid');
-  if (!cid || !/^baf/i.test(cid)) return c.json({ error: 'Invalid CID' }, 400);
+  if (!cid || (!/^baf/i.test(cid) && !/^Qm/.test(cid)))
+    return c.json({ error: 'Invalid CID' }, 400);
 
   const gw = c.env.PINATA_GATEWAY || 'gateway.pinata.cloud';
   const url = `https://${gw}/ipfs/${cid}`;

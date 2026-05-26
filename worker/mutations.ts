@@ -234,7 +234,7 @@ export async function executeMerge(env: Env, input: MergeInput): Promise<MergeRe
   const sourceTree = await fetchJSON<Tree>(env, sourceCommit.tree);
 
   // Detect conflicts: files modified in both branches relative to common ancestor
-  const conflicts = detectConflicts(targetTree, sourceTree);
+  const conflicts = await detectConflicts(env, targetTree, sourceTree);
 
   const treeCid = await mergeTrees(provider, env, input.groupId, targetTree, sourceTree);
 
@@ -290,7 +290,12 @@ export async function executeMerge(env: Env, input: MergeInput): Promise<MergeRe
 }
 
 /** Detect files that exist in both trees with different CIDs (potential conflicts). */
-function detectConflicts(treeA: Tree, treeB: Tree, prefix = ''): string[] {
+async function detectConflicts(
+  env: Env,
+  treeA: Tree,
+  treeB: Tree,
+  prefix = '',
+): Promise<string[]> {
   const conflicts: string[] = [];
   const mapA = new Map(treeA.entries.map((e) => [e.name, e]));
   const mapB = new Map(treeB.entries.map((e) => [e.name, e]));
@@ -301,6 +306,15 @@ function detectConflicts(treeA: Tree, treeB: Tree, prefix = ''): string[] {
     const path = prefix ? `${prefix}/${name}` : name;
     if (entryA.kind === 'blob' && entryB.kind === 'blob' && entryA.cid !== entryB.cid) {
       conflicts.push(path);
+    } else if (
+      entryA.kind === 'tree' &&
+      entryB.kind === 'tree' &&
+      entryA.cid !== entryB.cid
+    ) {
+      // Recursively compare subtrees
+      const subA = await fetchJSON<Tree>(env, entryA.cid);
+      const subB = await fetchJSON<Tree>(env, entryB.cid);
+      conflicts.push(...(await detectConflicts(env, subA, subB, path)));
     }
   }
   return conflicts;
