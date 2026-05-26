@@ -7,13 +7,13 @@ Command-line interface for GitLike — clone, push, pull, and manage repos from 
 ### From npm (once published)
 
 ```
-npm install -g gitlike-cli
+npm install -g @omodaka/gitlike-cli
 ```
 
 Or with pnpm:
 
 ```
-pnpm add -g gitlike-cli
+pnpm add -g @omodaka/gitlike-cli
 ```
 
 This installs the `gitlike` command globally.
@@ -21,7 +21,7 @@ This installs the `gitlike` command globally.
 ### From source
 
 ```
-git clone https://github.com/user/GitLike.git
+git clone https://github.com/Omodaka9375/gitlike.git
 cd GitLike/cli
 pnpm install
 pnpm build
@@ -228,7 +228,7 @@ npm login
 
 Make sure `cli/package.json` has the correct values:
 
-- `name` — must be unique on npm (e.g. `gitlike-cli`). Check availability at `https://www.npmjs.com/package/gitlike-cli`.
+- `name` — `@omodaka/gitlike-cli` (scoped to your npm account).
 - `version` — follow [semver](https://semver.org/). Start at `0.1.0` for the initial release.
 - `description` — short summary shown on the npm page.
 - `bin` — maps the `gitlike` command to the built file.
@@ -238,11 +238,10 @@ Make sure `cli/package.json` has the correct values:
 {
   "repository": {
     "type": "git",
-    "url": "https://github.com/user/GitLike.git",
-    "directory": "cli"
+    "url": "https://github.com/Omodaka9375/gitlike"
   },
   "homepage": "https://gitlike.dev",
-  "bugs": "https://github.com/user/GitLike/issues"
+  "bugs": "https://github.com/Omodaka9375/gitlike/issues"
 }
 ```
 
@@ -294,7 +293,7 @@ npm publish
 After publishing, verify the install works:
 
 ```
-npm install -g gitlike-cli
+npm install -g @omodaka/gitlike-cli
 gitlike --version
 gitlike --help
 ```

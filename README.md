@@ -158,7 +158,7 @@ GitLike takes a different approach:
 - **Browser-based auth** — `gitlike auth login` opens your browser for SIWE signing, then stores the token locally
 - **Manual token auth** — `gitlike auth login --token <T> --address <A>` for headless/CI environments
 - **Selective push** — Push all files or specify individual paths with `--files`
-- **npm installable** — `npm install -g gitlike-cli` (see [docs/cli.md](docs/cli.md))
+- **npm installable** — `npm install -g @omodaka/gitlike-cli` (see [docs/cli.md](docs/cli.md))
 
 ### UI & Experience
 - **Custom modal dialogs** — All browser dialogs (alert, confirm, prompt) replaced with styled, Promise-based modals
