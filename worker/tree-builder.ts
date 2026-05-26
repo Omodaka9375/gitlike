@@ -108,19 +108,18 @@ async function loadIntermediateTree(_env: Env, tree: Tree): Promise<Intermediate
   return intermediate;
 }
 
-/** Check if a path contains a dot-directory segment. */
-function hasDotDirectory(path: string): boolean {
-  const parts = path.split('/');
-  for (let i = 0; i < parts.length - 1; i++) {
-    if (parts[i].startsWith('.')) return true;
-  }
-  return false;
+/** OS junk files/directories that should never be committed. */
+const BLOCKED_NAMES = new Set(['.DS_Store', '__MACOSX', '.Spotlight-V100', '.Trashes', 'Thumbs.db']);
+
+/** Check if a path contains a blocked OS junk segment. */
+function isBlockedPath(path: string): boolean {
+  return path.split('/').some((segment) => BLOCKED_NAMES.has(segment));
 }
 
 /** Insert or delete a staged file in the intermediate tree. */
 function applyFile(root: IntermediateTree, file: StagedFile): void {
-  // Safety net — reject files inside dot-directories
-  if (hasDotDirectory(file.path)) return;
+  // Safety net — reject OS junk files
+  if (isBlockedPath(file.path)) return;
 
   const parts = file.path.split('/');
   let current = root;

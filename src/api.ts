@@ -258,13 +258,14 @@ export async function stageFiles(
   files: File[],
   paths: string[],
   repoKey?: CryptoKey,
+  encryptTreeNames?: boolean,
 ): Promise<Array<{ path: string; cid: CID; size: number }>> {
   const limit = createConcurrencyLimiter(IMPORT_CONCURRENCY);
   const staged: Array<{ path: string; cid: CID; size: number }> = [];
 
-  // If encryption is enabled and tree names should be encrypted, encrypt paths
+  // Only encrypt paths when both repoKey and encryptTreeNames are set
   let encryptedPaths = paths;
-  if (repoKey) {
+  if (repoKey && encryptTreeNames) {
     const { encryptString } = await import('./encryption.js');
     encryptedPaths = await Promise.all(paths.map((p) => encryptString(repoKey, p)));
   }

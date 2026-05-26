@@ -759,7 +759,7 @@ app.get('/api/user/:address/feed', async (c) => {
       xml += `    <summary>${escXml(e.message)}</summary>\n`;
       xml += `    <author><name>${escXml(e.author)}</name></author>\n`;
       xml += `    <updated>${e.ts}</updated>\n`;
-      xml += `    <id>urn:gitlike:${e.groupId}</id>\n`;
+      xml += `    <id>urn:gitlike:user:${address}:${e.groupId}:${encodeURIComponent(e.ts)}</id>\n`;
       xml += `  </entry>\n`;
     }
     xml += `</feed>`;
@@ -781,7 +781,8 @@ function escXml(s: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/'/g, '&apos;');
+    .replace(/'/g, '&apos;')
+    .replace(/"/g, '&quot;');
 }
 
 // ---------------------------------------------------------------------------
