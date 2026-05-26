@@ -177,13 +177,13 @@ GitLike takes a different approach:
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                  Browser (SPA)                    │
-│                                                   │
+│                  Browser (SPA)                   │
+│                                                  │
 │   Vanilla TS  ─  esbuild  ─  hash-based router   │
 │   Wallet (viem)  ─  SIWE  ─  Pinata Gateway      │
 └───────────────────────┬──────────────────────────┘
                         │ /api/*
-┌───────────────────────▼──────────────────────────┐
+┌───────────────────────▼───────────────────────────┐
 │             Cloudflare Worker (Hono)              │
 │                                                   │
 │   Auth (SIWE verify)  ─  Rate limiting            │
@@ -196,21 +196,21 @@ GitLike takes a different approach:
 │   tag, PR, settings, delegation, pages)           │
 ├───────────────────────────────────────────────────┤
 │   KV: Sessions + manifests + pages slugs          │
-└───────────────────────┬──────────────────────────┘
+└───────────────────────┬───────────────────────────┘
                         │
-┌───────────────────────▼──────────────────────────┐
-│    Storage Provider (IPFS)                │
+┌───────────────────────▼───────────────────────────┐
+│    Storage Provider (IPFS)                        │
 │                                                   │
 │   Pinata (default) ─ Filebase (alt/mirror)        │
 │   Groups ─ Presigned uploads ─ JSON pinning       │
 │   Signatures API  ─  Dedicated gateway            │
-└──────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────┐
-│        Pages Worker (app.gitlike.dev)             │
-│                                                   │
+│        Pages Worker (app.gitlike.dev)            │
+│                                                  │
 │   Slug → KV → manifest → IPFS tree → serve       │
-│   MIME detection ─ directory indexes ─ 404s       │
+│   MIME detection ─ directory indexes ─ 404s      │
 └──────────────────────────────────────────────────┘
 ```
 
