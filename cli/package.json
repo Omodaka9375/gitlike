@@ -1,5 +1,5 @@
 {
-  "name": "gitlike-cli",
+  "name": "@omodaka/gitlike-cli",
   "version": "0.1.0",
   "description": "CLI for GitLike — decentralized version control on IPFS",
   "type": "module",

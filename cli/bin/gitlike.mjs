@@ -97,19 +97,43 @@ function writeLocalIndex(index, root) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "index.json"), JSON.stringify(index, null, 2) + "\n");
 }
+function readCidIndex(root) {
+  const repoRoot = root ?? findRepoRoot();
+  if (!repoRoot) return {};
+  try {
+    const raw = fs.readFileSync(path.join(repoRoot, LOCAL_DIR, "cids.json"), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+function writeCidIndex(index, root) {
+  const repoRoot = root ?? process.cwd();
+  const dir = path.join(repoRoot, LOCAL_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "cids.json"), JSON.stringify(index, null, 2) + "\n");
+}
 
 // src/auth.ts
 async function browserLogin() {
   const config = readGlobalConfig();
   const base = config.apiUrl || "https://gitlike.dev";
   return new Promise((resolve, reject) => {
+    const allowedOrigin = new URL(base).origin;
     const server = http.createServer((req, res) => {
+      const origin = req.headers.origin ?? "";
+      if (origin && origin !== allowedOrigin) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return;
+      }
+      const corsHeaders = {
+        "Access-Control-Allow-Origin": allowedOrigin,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      };
       if (req.method === "OPTIONS") {
-        res.writeHead(204, {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type"
-        });
+        res.writeHead(204, corsHeaders);
         res.end();
         return;
       }
@@ -122,23 +146,22 @@ async function browserLogin() {
           try {
             const data = JSON.parse(body);
             if (!data.token || !data.address) {
-              res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
+              res.writeHead(400, corsHeaders);
               res.end("Missing token or address");
               return;
             }
             writeGlobalConfig({ ...config, token: data.token, address: data.address });
-            res.writeHead(200, {
-              "Content-Type": "text/html",
-              "Access-Control-Allow-Origin": "*"
-            });
+            res.writeHead(200, { "Content-Type": "text/html", ...corsHeaders });
             res.end("OK");
             console.log(`
 \u2713 Authenticated as ${data.address}`);
             console.log("  You can close the browser tab.");
+            clearTimeout(timeout);
             server.close();
             resolve();
           } catch (err) {
-            res.writeHead(400, { "Access-Control-Allow-Origin": "*" });
+            clearTimeout(timeout);
+            res.writeHead(400, corsHeaders);
             res.end("Invalid request");
             server.close();
             reject(err);
@@ -167,7 +190,7 @@ async function browserLogin() {
       } catch {
       }
     });
-    setTimeout(
+    const timeout = setTimeout(
       () => {
         server.close();
         reject(new Error("Auth timed out after 5 minutes."));
@@ -197,8 +220,8 @@ function authStatus() {
 }
 
 // src/clone.ts
-import fs3 from "node:fs";
-import path3 from "node:path";
+import fs4 from "node:fs";
+import path4 from "node:path";
 
 // src/api.ts
 function getBase() {
@@ -272,10 +295,10 @@ async function uploadFile(repoId, fileName, content) {
   const d = data;
   return { cid: d.data.cid, size: d.data.size ?? content.length };
 }
-async function commitFiles(repoId, branch2, message, files) {
+async function commitFiles(repoId, branch2, message, files, expectedHead) {
   const res = await apiFetch(
     `/repos/${repoId}/commit`,
-    { method: "POST", body: JSON.stringify({ branch: branch2, message, files }) },
+    { method: "POST", body: JSON.stringify({ branch: branch2, message, files, expectedHead }) },
     true
   );
   return res.json();
@@ -297,8 +320,11 @@ async function createRepo(name, description, visibility, license) {
 }
 
 // src/tree-io.ts
-import fs2 from "node:fs";
-import path2 from "node:path";
+import fs3 from "node:fs";
+import crypto from "node:crypto";
+import path3 from "node:path";
+
+// src/concurrency.ts
 var CONCURRENCY = 6;
 function createLimiter(max) {
   let active = 0;
@@ -322,192 +348,10 @@ function createLimiter(max) {
     }
   });
 }
-async function downloadTree(tree, dir, onFile) {
-  const limit = createLimiter(CONCURRENCY);
-  const tasks = [];
-  const walk = (t, d) => {
-    for (const entry of t.entries) {
-      const target = path2.join(d, entry.name);
-      if (entry.kind === "tree") {
-        tasks.push(
-          (async () => {
-            fs2.mkdirSync(target, { recursive: true });
-            const sub = await fetchJSON(entry.cid);
-            walk(sub, target);
-          })()
-        );
-      } else {
-        tasks.push(
-          limit(async () => {
-            const data = await fetchBytes(entry.cid);
-            fs2.mkdirSync(path2.dirname(target), { recursive: true });
-            fs2.writeFileSync(target, data);
-            onFile(target);
-          })
-        );
-      }
-    }
-  };
-  walk(tree, dir);
-  await Promise.all(tasks);
-}
-async function buildTreeIndex(treeCid) {
-  const index = /* @__PURE__ */ new Map();
-  const walk = async (tree2, prefix) => {
-    for (const entry of tree2.entries) {
-      const p = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.kind === "tree") {
-        const sub = await fetchJSON(entry.cid);
-        await walk(sub, p);
-      } else {
-        index.set(p, entry.cid);
-      }
-    }
-  };
-  const tree = await fetchJSON(treeCid);
-  await walk(tree, "");
-  return index;
-}
-
-// src/clone.ts
-async function cloneRepo(groupId, targetDir) {
-  console.log(`Fetching manifest for ${groupId}...`);
-  const manifest = await fetchManifest(groupId);
-  if (!manifest) {
-    console.error("Repository not found.");
-    process.exit(1);
-  }
-  const dir = targetDir || manifest.name || groupId;
-  const root = path3.resolve(dir);
-  if (fs3.existsSync(root) && fs3.readdirSync(root).length > 0) {
-    console.error(`Directory "${dir}" already exists and is not empty.`);
-    process.exit(1);
-  }
-  const branch2 = manifest.defaultBranch || "main";
-  const headCid = manifest.branches[branch2];
-  if (!headCid) {
-    console.error(`Branch "${branch2}" not found.`);
-    process.exit(1);
-  }
-  console.log(`Cloning ${manifest.name} (${branch2}) into ${dir}/`);
-  const commit = await fetchJSON(headCid);
-  const tree = await fetchJSON(commit.tree);
-  fs3.mkdirSync(root, { recursive: true });
-  let count = 0;
-  await downloadTree(tree, root, () => {
-    count++;
-    if (count % 10 === 0) process.stdout.write(`\r  Downloaded ${count} files...`);
-  });
-  writeRepoState({ groupId, name: manifest.name, branch: branch2, head: headCid }, root);
-  const index = await buildTreeIndex(commit.tree);
-  writeLocalIndex(Object.fromEntries(index), root);
-  console.log(`\r\u2713 Cloned ${count} files into ${dir}/`);
-}
-
-// src/init.ts
-import fs4 from "node:fs";
-async function initRepo(name, opts = {}) {
-  requireAuth();
-  if (findRepoRoot()) {
-    console.error("Already inside a GitLike repo. Aborting.");
-    process.exit(1);
-  }
-  console.log(`Creating repo "${name}"...`);
-  const { groupId, commitCid } = await createRepo(
-    name,
-    opts.description,
-    opts.visibility,
-    opts.license
-  );
-  writeRepoState({
-    groupId,
-    name,
-    branch: "main",
-    head: commitCid
-  });
-  writeLocalIndex({});
-  if (!fs4.existsSync(".gitlikeignore")) {
-    fs4.writeFileSync(
-      ".gitlikeignore",
-      ["node_modules/", ".git/", "dist/", ".env", ".env.*", ""].join("\n")
-    );
-  }
-  console.log(`\u2713 Repo created: ${name} (${groupId.slice(0, 12)}\u2026)`);
-  console.log(`  Branch: main`);
-  console.log(`  HEAD:   ${commitCid.slice(0, 12)}\u2026`);
-}
-
-// src/pull.ts
-import fs5 from "node:fs";
-import path4 from "node:path";
-var PROTECTED_DIRS = /* @__PURE__ */ new Set([".gitlike", ".git", "node_modules"]);
-async function pullRepo() {
-  const { root, state } = requireRepo();
-  console.log(`Pulling ${state.name} (${state.branch})...`);
-  const manifest = await fetchManifest(state.groupId);
-  if (!manifest) {
-    console.error("Repository not found on remote.");
-    process.exit(1);
-  }
-  const remoteCid = manifest.branches[state.branch];
-  if (!remoteCid) {
-    console.error(`Branch "${state.branch}" not found on remote.`);
-    process.exit(1);
-  }
-  if (remoteCid === state.head) {
-    console.log("Already up to date.");
-    return;
-  }
-  const commit = await fetchJSON(remoteCid);
-  const tree = await fetchJSON(commit.tree);
-  const remoteIndex = await buildTreeIndex(commit.tree);
-  const remotePaths = new Set(remoteIndex.keys());
-  let downloaded = 0;
-  await downloadTree(tree, root, () => {
-    downloaded++;
-  });
-  const deleted = cleanStaleFiles(root, remotePaths);
-  writeRepoState({ ...state, head: remoteCid }, root);
-  writeLocalIndex(Object.fromEntries(remoteIndex), root);
-  const parts = [`\u2713 Updated ${downloaded} files`];
-  if (deleted > 0) parts.push(`removed ${deleted} stale files`);
-  parts.push(`HEAD is now ${remoteCid.slice(0, 12)}\u2026`);
-  console.log(parts.join(", ") + ".");
-}
-function cleanStaleFiles(root, remotePaths) {
-  let deleted = 0;
-  const walk = (dir) => {
-    for (const entry of fs5.readdirSync(dir, { withFileTypes: true })) {
-      if (PROTECTED_DIRS.has(entry.name)) continue;
-      const full = path4.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-        try {
-          const remaining = fs5.readdirSync(full);
-          if (remaining.length === 0) fs5.rmdirSync(full);
-        } catch {
-        }
-      } else {
-        const rel = path4.relative(root, full).replace(/\\/g, "/");
-        if (!remotePaths.has(rel)) {
-          fs5.unlinkSync(full);
-          deleted++;
-        }
-      }
-    }
-  };
-  walk(root);
-  return deleted;
-}
-
-// src/push.ts
-import fs7 from "node:fs";
-import crypto from "node:crypto";
-import path6 from "node:path";
 
 // src/file-filter.ts
-import fs6 from "node:fs";
-import path5 from "node:path";
+import fs2 from "node:fs";
+import path2 from "node:path";
 var ALWAYS_IGNORED = /* @__PURE__ */ new Set([".ds_store", "thumbs.db", "desktop.ini"]);
 var SKIP_DIRS = /* @__PURE__ */ new Set([".gitlike", ".git", "node_modules"]);
 function shouldIgnore(filePath, patterns = []) {
@@ -524,14 +368,14 @@ function parseIgnoreFile(content) {
   return content.split("\n").map((line) => line.trimEnd()).filter((line) => line && !line.startsWith("#"));
 }
 function loadIgnorePatterns(root) {
-  const gitlikeignore = path5.join(root, ".gitlikeignore");
-  const gitignore = path5.join(root, ".gitignore");
+  const gitlikeignore = path2.join(root, ".gitlikeignore");
+  const gitignore = path2.join(root, ".gitignore");
   try {
-    if (fs6.existsSync(gitlikeignore)) {
-      return parseIgnoreFile(fs6.readFileSync(gitlikeignore, "utf-8"));
+    if (fs2.existsSync(gitlikeignore)) {
+      return parseIgnoreFile(fs2.readFileSync(gitlikeignore, "utf-8"));
     }
-    if (fs6.existsSync(gitignore)) {
-      return parseIgnoreFile(fs6.readFileSync(gitignore, "utf-8"));
+    if (fs2.existsSync(gitignore)) {
+      return parseIgnoreFile(fs2.readFileSync(gitignore, "utf-8"));
     }
   } catch {
   }
@@ -540,13 +384,13 @@ function loadIgnorePatterns(root) {
 function collectFiles(root, patterns = []) {
   const files = [];
   const walk = (dir) => {
-    for (const entry of fs6.readdirSync(dir, { withFileTypes: true })) {
+    for (const entry of fs2.readdirSync(dir, { withFileTypes: true })) {
       if (SKIP_DIRS.has(entry.name)) continue;
-      const full = path5.join(dir, entry.name);
+      const full = path2.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
       } else {
-        const rel = path5.relative(root, full).replace(/\\/g, "/");
+        const rel = path2.relative(root, full).replace(/\\/g, "/");
         if (!shouldIgnore(rel, patterns)) {
           files.push(rel);
         }
@@ -622,11 +466,231 @@ function globToRegex(pattern) {
   return new RegExp("^" + re + "$");
 }
 
+// src/tree-io.ts
+async function downloadTree(tree, dir, onFile, skipCids) {
+  const limit = createLimiter(CONCURRENCY);
+  const walk = async (t, d) => {
+    const tasks = [];
+    for (const entry of t.entries) {
+      const target = path3.join(d, entry.name);
+      if (entry.kind === "tree") {
+        tasks.push(
+          (async () => {
+            fs3.mkdirSync(target, { recursive: true });
+            const sub = await fetchJSON(entry.cid);
+            await walk(sub, target);
+          })()
+        );
+      } else {
+        if (skipCids?.has(entry.cid)) continue;
+        tasks.push(
+          limit(async () => {
+            const data = await fetchBytes(entry.cid);
+            fs3.mkdirSync(path3.dirname(target), { recursive: true });
+            fs3.writeFileSync(target, data);
+            onFile(target);
+          })
+        );
+      }
+    }
+    await Promise.all(tasks);
+  };
+  await walk(tree, dir);
+}
+async function buildTreeIndex(treeCid) {
+  const index = /* @__PURE__ */ new Map();
+  const walk = async (tree2, prefix) => {
+    for (const entry of tree2.entries) {
+      const p = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.kind === "tree") {
+        const sub = await fetchJSON(entry.cid);
+        await walk(sub, p);
+      } else {
+        index.set(p, entry.cid);
+      }
+    }
+  };
+  const tree = await fetchJSON(treeCid);
+  await walk(tree, "");
+  return index;
+}
+function buildLocalHashIndex(root) {
+  const patterns = loadIgnorePatterns(root);
+  const files = collectFiles(root, patterns);
+  const index = {};
+  for (const relPath of files) {
+    const fullPath = path3.join(root, relPath);
+    if (!fs3.existsSync(fullPath) || fs3.statSync(fullPath).isDirectory()) continue;
+    const content = fs3.readFileSync(fullPath);
+    const hash = crypto.createHash("sha256").update(content).digest("hex");
+    index[relPath] = `sha256:${hash}`;
+  }
+  return index;
+}
+
+// src/clone.ts
+async function cloneRepo(groupId, targetDir) {
+  console.log(`Fetching manifest for ${groupId}...`);
+  const manifest = await fetchManifest(groupId);
+  if (!manifest) {
+    console.error("Repository not found.");
+    process.exit(1);
+  }
+  const dir = targetDir || manifest.name || groupId;
+  const root = path4.resolve(dir);
+  if (fs4.existsSync(root) && fs4.readdirSync(root).length > 0) {
+    console.error(`Directory "${dir}" already exists and is not empty.`);
+    process.exit(1);
+  }
+  const branch2 = manifest.defaultBranch || "main";
+  const headCid = manifest.branches[branch2];
+  if (!headCid) {
+    console.error(`Branch "${branch2}" not found.`);
+    process.exit(1);
+  }
+  console.log(`Cloning ${manifest.name} (${branch2}) into ${dir}/`);
+  const commit = await fetchJSON(headCid);
+  const tree = await fetchJSON(commit.tree);
+  fs4.mkdirSync(root, { recursive: true });
+  let count = 0;
+  await downloadTree(tree, root, () => {
+    count++;
+    if (count % 10 === 0) process.stdout.write(`\r  Downloaded ${count} files...`);
+  });
+  writeRepoState({ groupId, name: manifest.name, branch: branch2, head: headCid }, root);
+  const cidIndex = await buildTreeIndex(commit.tree);
+  writeCidIndex(Object.fromEntries(cidIndex), root);
+  writeLocalIndex(buildLocalHashIndex(root), root);
+  console.log(`\r\u2713 Cloned ${count} files into ${dir}/`);
+}
+
+// src/init.ts
+import fs5 from "node:fs";
+async function initRepo(name, opts = {}) {
+  requireAuth();
+  if (findRepoRoot()) {
+    console.error("Already inside a GitLike repo. Aborting.");
+    process.exit(1);
+  }
+  console.log(`Creating repo "${name}"...`);
+  const { groupId, commitCid } = await createRepo(
+    name,
+    opts.description,
+    opts.visibility,
+    opts.license
+  );
+  writeRepoState({
+    groupId,
+    name,
+    branch: "main",
+    head: commitCid
+  });
+  writeLocalIndex({});
+  if (!fs5.existsSync(".gitlikeignore")) {
+    fs5.writeFileSync(
+      ".gitlikeignore",
+      ["node_modules/", ".git/", "dist/", ".env", ".env.*", ""].join("\n")
+    );
+  }
+  console.log(`\u2713 Repo created: ${name} (${groupId.slice(0, 12)}\u2026)`);
+  console.log(`  Branch: main`);
+  console.log(`  HEAD:   ${commitCid.slice(0, 12)}\u2026`);
+}
+
+// src/pull.ts
+import fs6 from "node:fs";
+import path5 from "node:path";
+var PROTECTED_DIRS = /* @__PURE__ */ new Set([".gitlike", ".git", "node_modules"]);
+async function pullRepo() {
+  const { root, state } = requireRepo();
+  console.log(`Pulling ${state.name} (${state.branch})...`);
+  const manifest = await fetchManifest(state.groupId);
+  if (!manifest) {
+    console.error("Repository not found on remote.");
+    process.exit(1);
+  }
+  const remoteCid = manifest.branches[state.branch];
+  if (!remoteCid) {
+    console.error(`Branch "${state.branch}" not found on remote.`);
+    process.exit(1);
+  }
+  if (remoteCid === state.head) {
+    console.log("Already up to date.");
+    return;
+  }
+  const commit = await fetchJSON(remoteCid);
+  const tree = await fetchJSON(commit.tree);
+  const remoteIndex = await buildTreeIndex(commit.tree);
+  const remotePaths = new Set(remoteIndex.keys());
+  const oldCidIndex = readCidIndex(root);
+  const skipCids = /* @__PURE__ */ new Set();
+  for (const [filePath, cid] of remoteIndex) {
+    if (oldCidIndex[filePath] === cid) skipCids.add(cid);
+  }
+  let downloaded = 0;
+  await downloadTree(
+    tree,
+    root,
+    () => {
+      downloaded++;
+    },
+    skipCids
+  );
+  const skipped = remoteIndex.size - downloaded;
+  const deleted = cleanStaleFiles(root, remotePaths);
+  writeRepoState({ ...state, head: remoteCid }, root);
+  writeCidIndex(Object.fromEntries(remoteIndex), root);
+  writeLocalIndex(buildLocalHashIndex(root), root);
+  const parts = [`\u2713 Updated ${downloaded} files`];
+  if (skipped > 0) parts.push(`${skipped} unchanged`);
+  if (deleted > 0) parts.push(`removed ${deleted} stale`);
+  parts.push(`HEAD is now ${remoteCid.slice(0, 12)}\u2026`);
+  console.log(parts.join(", ") + ".");
+}
+function cleanStaleFiles(root, remotePaths) {
+  let deleted = 0;
+  const walk = (dir) => {
+    for (const entry of fs6.readdirSync(dir, { withFileTypes: true })) {
+      if (PROTECTED_DIRS.has(entry.name)) continue;
+      const full = path5.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        try {
+          const remaining = fs6.readdirSync(full);
+          if (remaining.length === 0) fs6.rmdirSync(full);
+        } catch {
+        }
+      } else {
+        const rel = path5.relative(root, full).replace(/\\/g, "/");
+        if (!remotePaths.has(rel)) {
+          fs6.unlinkSync(full);
+          deleted++;
+        }
+      }
+    }
+  };
+  walk(root);
+  return deleted;
+}
+
 // src/push.ts
+import fs7 from "node:fs";
+import crypto2 from "node:crypto";
+import path6 from "node:path";
 async function pushRepo(message, filePaths) {
   requireAuth();
   const { root, state } = requireRepo();
   console.log(`Pushing to ${state.name} (${state.branch})...`);
+  const manifest = await fetchManifest(state.groupId);
+  if (!manifest) {
+    console.error("Repository not found on remote.");
+    process.exit(1);
+  }
+  const remoteHead = manifest.branches[state.branch];
+  if (remoteHead && remoteHead !== state.head) {
+    console.error(`Remote HEAD has advanced. Run: gitlike pull`);
+    process.exit(1);
+  }
   const patterns = loadIgnorePatterns(root);
   const localIndex = readLocalIndex(root);
   const allLocal = filePaths?.length ? filePaths.map((p) => p.replace(/\\/g, "/")) : collectFiles(root, patterns);
@@ -636,7 +700,7 @@ async function pushRepo(message, filePaths) {
     const fullPath = path6.join(root, relPath);
     if (!fs7.existsSync(fullPath) || fs7.statSync(fullPath).isDirectory()) continue;
     const content = fs7.readFileSync(fullPath);
-    const hash = crypto.createHash("sha256").update(content).digest("hex");
+    const hash = crypto2.createHash("sha256").update(content).digest("hex");
     hashes.set(relPath, hash);
     const storedCid = localIndex[relPath];
     if (storedCid && storedCid.startsWith("sha256:") && storedCid === `sha256:${hash}`) {
@@ -649,18 +713,22 @@ async function pushRepo(message, filePaths) {
     return;
   }
   console.log(`  ${changed.length} changed file(s) to upload (${allLocal.length} total)`);
+  const limit = createLimiter(CONCURRENCY);
   const staged = [];
   let uploaded = 0;
-  for (const relPath of changed) {
-    const fullPath = path6.join(root, relPath);
-    const content = new Uint8Array(fs7.readFileSync(fullPath));
-    const fileName = path6.basename(relPath);
-    process.stdout.write(`\r  Uploading ${++uploaded}/${changed.length}: ${relPath}`);
-    const { cid, size } = await uploadFile(state.groupId, fileName, content);
-    staged.push({ path: relPath, cid, size });
-  }
+  const tasks = changed.map(
+    (relPath) => limit(async () => {
+      const fullPath = path6.join(root, relPath);
+      const content = new Uint8Array(fs7.readFileSync(fullPath));
+      const fileName = path6.basename(relPath);
+      const { cid, size } = await uploadFile(state.groupId, fileName, content);
+      staged.push({ path: relPath, cid, size });
+      process.stdout.write(`\r  Uploaded ${++uploaded}/${changed.length}`);
+    })
+  );
+  await Promise.all(tasks);
   process.stdout.write("\r  Committing...                                    \n");
-  const result = await commitFiles(state.groupId, state.branch, message, staged);
+  const result = await commitFiles(state.groupId, state.branch, message, staged, state.head);
   writeRepoState({ ...state, head: result.commitCid }, root);
   const newIndex = {};
   for (const [p, hash] of hashes) {
@@ -672,7 +740,7 @@ async function pushRepo(message, filePaths) {
 
 // src/commands.ts
 import fs8 from "node:fs";
-import crypto2 from "node:crypto";
+import crypto3 from "node:crypto";
 import path7 from "node:path";
 async function showLog(count = 20) {
   const { state } = requireRepo();
@@ -741,8 +809,18 @@ async function createNewBranch(name) {
   await createBranch(state.groupId, name, state.branch);
   console.log(`\u2713 Branch "${name}" created.`);
 }
-async function switchBranch(name) {
+async function switchBranch(name, force = false) {
   const { root, state } = requireRepo();
+  if (!force) {
+    const { added, modified, deleted } = detectChanges(root);
+    if (added.length > 0 || modified.length > 0 || deleted.length > 0) {
+      console.error(
+        `You have uncommitted changes (${added.length}A ${modified.length}M ${deleted.length}D).`
+      );
+      console.error("Push or discard them first, or use: gitlike switch --force <branch>");
+      process.exit(1);
+    }
+  }
   const manifest = await fetchManifest(state.groupId);
   if (!manifest) {
     console.error("Repository not found.");
@@ -761,12 +839,12 @@ async function switchBranch(name) {
     count++;
   });
   writeRepoState({ ...state, branch: name, head: headCid }, root);
-  const index = await buildTreeIndex(commit.tree);
-  writeLocalIndex(Object.fromEntries(index), root);
+  const cidIndex = await buildTreeIndex(commit.tree);
+  writeCidIndex(Object.fromEntries(cidIndex), root);
+  writeLocalIndex(buildLocalHashIndex(root), root);
   console.log(`\u2713 Switched to ${name}. ${count} files updated.`);
 }
-function showDiff() {
-  const { root } = requireRepo();
+function detectChanges(root) {
   const localIndex = readLocalIndex(root);
   const patterns = loadIgnorePatterns(root);
   const localFiles = collectFiles(root, patterns);
@@ -783,7 +861,7 @@ function showDiff() {
     }
     const fullPath = path7.join(root, relPath);
     const content = fs8.readFileSync(fullPath);
-    const hash = crypto2.createHash("sha256").update(content).digest("hex");
+    const hash = crypto3.createHash("sha256").update(content).digest("hex");
     if (stored !== `sha256:${hash}`) {
       modified.push(relPath);
     }
@@ -791,6 +869,11 @@ function showDiff() {
   for (const p of Object.keys(localIndex)) {
     if (!seen.has(p)) deleted.push(p);
   }
+  return { added, modified, deleted };
+}
+function showDiff() {
+  const { root } = requireRepo();
+  const { added, modified, deleted } = detectChanges(root);
   if (added.length === 0 && modified.length === 0 && deleted.length === 0) {
     console.log("No changes.");
     return;
@@ -854,8 +937,8 @@ branch.command("list").description("List remote branches").action(async () => {
 branch.command("create <name>").description("Create a new branch from current branch").action(async (name) => {
   await createNewBranch(name);
 });
-program.command("switch <branch>").description("Switch to a different branch").action(async (branchName) => {
-  await switchBranch(branchName);
+program.command("switch <branch>").description("Switch to a different branch").option("-f, --force", "Skip uncommitted changes check").action(async (branchName, opts) => {
+  await switchBranch(branchName, opts.force);
 });
 program.parse();
 //# sourceMappingURL=gitlike.mjs.map
