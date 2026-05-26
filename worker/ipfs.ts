@@ -342,7 +342,7 @@ export async function storeManifestCid(
 /** Entry in a commit walk. */
 export type CommitEntry = { cid: CID; commit: Commit };
 
-/** Walk commit history starting from a CID. */
+/** Walk commit history (first-parent only; merge second parents are not traversed). */
 export async function walkCommitHistory(
   env: Env,
   startCid: CID,

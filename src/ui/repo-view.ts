@@ -765,7 +765,6 @@ async function handleUpload(overlay: HTMLElement, route: Route): Promise<void> {
         setTimeout(() => {
           overlay.remove();
           navigate(buildPath(route.slug, route.branch));
-          refreshRoute();
         }, 1500);
         return;
       }
@@ -780,7 +779,6 @@ async function handleUpload(overlay: HTMLElement, route: Route): Promise<void> {
       overlay.remove();
       // Refresh the current view
       navigate(buildPath(route.slug, route.branch));
-      refreshRoute();
     }, 1000);
   } catch (err) {
     if (status) {
@@ -990,7 +988,6 @@ async function handleMerge(overlay: HTMLElement, route: Route): Promise<void> {
     setTimeout(() => {
       overlay.remove();
       navigate(buildPath(route.slug, target));
-      refreshRoute();
     }, 1000);
   } catch (err) {
     if (status) {

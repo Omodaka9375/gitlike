@@ -176,7 +176,10 @@ export const rateLimit: MiddlewareHandler<HonoEnv> = async (c: Context<HonoEnv>,
     return c.json({ error: 'Rate limit exceeded. Try again in a minute.' }, 429);
   }
 
-  // Increment (best-effort — not atomic, but good enough for rate limiting)
+  // Increment (best-effort — not atomic, but good enough for rate limiting).
+  // Note: KV read-then-write is not atomic. Under burst traffic, multiple requests
+  // can read the same counter and all increment to the same value. Accepted trade-off:
+  // the 30 req/min limit is generous enough that this is not exploitable in practice.
   await c.env.SESSIONS.put(key, String(current + 1), { expirationTtl: 120 });
   await next();
 };

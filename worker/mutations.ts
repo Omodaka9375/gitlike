@@ -731,6 +731,10 @@ export async function executeCreatePR(env: Env, input: CreatePRInput): Promise<P
 
 /** Update a PR status (close or merge). */
 export async function executeUpdatePR(env: Env, input: UpdatePRInput): Promise<PRResult> {
+  if (!['open', 'merged', 'closed'].includes(input.status)) {
+    throw new MutationError('Invalid PR status.', 400);
+  }
+
   const provider = createStorage(env);
 
   const manifest = await fetchManifest(provider, env, input.groupId);
@@ -916,6 +920,10 @@ export async function executeCreateIssue(env: Env, input: CreateIssueInput): Pro
 
 /** Update an issue (comment, close/reopen, labels). */
 export async function executeUpdateIssue(env: Env, input: UpdateIssueInput): Promise<IssueResult> {
+  if (input.status && !['open', 'closed'].includes(input.status)) {
+    throw new MutationError('Invalid issue status.', 400);
+  }
+
   const provider = createStorage(env);
 
   const manifest = await fetchManifest(provider, env, input.groupId);
@@ -1027,7 +1035,7 @@ export async function dispatchMutation(env: Env, input: MutationInput): Promise<
 // Activity tracking
 // ---------------------------------------------------------------------------
 
-/** Record a contribution for the given address on today's date (best-effort). */
+/** Record a contribution (best-effort, non-atomic across repos for the same user). */
 export async function recordActivity(env: Env, address: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   const year = today.slice(0, 4);

@@ -5,7 +5,11 @@
 
 /**
  * Convert markdown text to sanitized HTML.
- * @param resolveImage Optional callback to rewrite image src URLs (e.g. resolve relative paths).
+ *
+ * Security: input is HTML-escaped before processing. Only allowlisted `<img>`
+ * attributes and `isSafeUrl()`-validated links are emitted.
+ *
+ * @param resolveImage Optional callback to rewrite image src URLs.
  */
 export function renderMarkdown(md: string, resolveImage?: (src: string) => string | null): string {
   // Shield inline HTML <img> tags before escaping (sanitize + placeholder)

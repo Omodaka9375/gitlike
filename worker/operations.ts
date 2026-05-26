@@ -849,7 +849,11 @@ repos.get('/:id/prs', optionalAuth, async (c) => {
     const denied = checkRepoAccess(c, manifest);
     if (denied) return denied;
 
-    const prCids = manifest.pullRequests ?? [];
+    const allPrCids = manifest.pullRequests ?? [];
+    const total = allPrCids.length;
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 100);
+    const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10), 0);
+    const prCids = allPrCids.slice(offset, offset + limit);
     const settled = await Promise.allSettled(
       prCids.map(async (cid) => {
         const pr = await fetchJSON(c.env, cid);
@@ -863,7 +867,7 @@ repos.get('/:id/prs', optionalAuth, async (c) => {
       .map((r) => r.value);
 
     c.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
-    return c.json({ prs });
+    return c.json({ prs, nextOffset: offset + limit < total ? offset + limit : null, total });
   } catch (err) {
     return c.json({ error: `Failed to list PRs: ${errorMsg(err)}` }, 500);
   }
@@ -950,7 +954,11 @@ repos.get('/:id/issues', optionalAuth, async (c) => {
     const denied = checkRepoAccess(c, manifest);
     if (denied) return denied;
 
-    const issueCids = manifest.issues ?? [];
+    const allIssueCids = manifest.issues ?? [];
+    const total = allIssueCids.length;
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 100);
+    const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10), 0);
+    const issueCids = allIssueCids.slice(offset, offset + limit);
     const settled = await Promise.allSettled(
       issueCids.map(async (cid) => {
         const issue = await fetchJSON(c.env, cid);
@@ -965,7 +973,7 @@ repos.get('/:id/issues', optionalAuth, async (c) => {
       .map((r) => r.value);
 
     c.header('Cache-Control', 'public, max-age=15, stale-while-revalidate=60');
-    return c.json({ issues });
+    return c.json({ issues, nextOffset: offset + limit < total ? offset + limit : null, total });
   } catch (err) {
     return c.json({ error: `Failed to list issues: ${errorMsg(err)}` }, 500);
   }
