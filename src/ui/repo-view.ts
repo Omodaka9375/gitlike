@@ -1995,7 +1995,9 @@ function buildEncryptionSettingsCol(manifest: Manifest, route: Route): HTMLEleme
             const address = connectedAddress();
             if (!address || !manifest.keyBundle) throw new Error('Not connected.');
             const ownerPubKey = manifest.keyBundle[epoch].ownerPublicKey;
-            const remaining = manifest.acl.owners.concat(manifest.acl.writers) as Address[];
+            // Re-wrap for the connected signer only (see enable-encryption note:
+            // other addresses cannot derive the wrapping UEK in a browser wallet).
+            const remaining = [address] as Address[];
 
             const { walletClient: getWC } = await import('../wallet.js');
             const { updatedBundle, newEpoch } = await rotateRepoKey(
@@ -2044,8 +2046,13 @@ function buildEncryptionSettingsCol(manifest: Manifest, route: Route): HTMLEleme
             const { fetchPubkey } = await import('../api.js');
 
             const ownerPubKey = (await fetchPubkey(address)) ?? 'unknown';
-            const authorized = [address, ...manifest.acl.writers] as Address[];
-            const unique = [...new Set(authorized.map((a) => a.toLowerCase()))] as Address[];
+            // Only the connected wallet (the signer) can reproduce the UEK that
+            // wraps the repo key. True per-collaborator wrapping requires ECDH,
+            // which browser wallets cannot provide (no private-key access, and
+            // Web Crypto ECDH is P-256 only). Wrapping for writers here would
+            // create wrapped keys they can never unwrap, so wrap for the signer
+            // only — keeping the key bundle self-consistent and usable.
+            const unique = [address.toLowerCase()] as Address[];
 
             const { walletClient: getWC } = await import('../wallet.js');
             const { epochData } = await createKeyBundleEpoch(

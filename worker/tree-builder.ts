@@ -195,6 +195,15 @@ async function pinIntermediateTree(
 
         // Copy new entries into the merged tree
         for (const [name, newEntry] of entry.children.entries) {
+          // If a staged file created an intermediate directory whose subtree was
+          // never loaded (applyFile only sees top-level children), carry over the
+          // pre-existing subtree's CID so deeper content isn't dropped on re-pin.
+          if (newEntry.kind === 'tree' && !newEntry.existingCid) {
+            const existing = merged.entries.get(name);
+            if (existing && existing.kind === 'tree' && existing.existingCid) {
+              newEntry.existingCid = existing.existingCid;
+            }
+          }
           merged.entries.set(name, newEntry);
         }
 
@@ -270,6 +279,174 @@ function mergeIntermediate(base: IntermediateTree, overlay: IntermediateTree): v
     // Overlay wins (blob replaces tree, blob replaces blob, tree replaces blob)
     base.entries.set(name, entry);
   }
+}
+
+// ---------------------------------------------------------------------------
+// True three-way merge (base + ours + theirs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Three-way merge of three trees (base, ours, theirs).
+ *
+ * Semantics:
+ *  - A name changed on only one side is taken from that side.
+ *  - A deletion on one side (while the other side is unchanged) is honored.
+ *  - A name modified differently on both sides is reported as a conflict and
+ *    resolved in favour of `ours` (the target branch) to avoid silent loss.
+ *  - Subtree-vs-subtree changes are merged recursively.
+ *
+ * Returns the merged root CID and the list of genuine conflict paths.
+ */
+export async function mergeTrees3(
+  provider: StorageProvider,
+  env: Env,
+  repo: GroupId,
+  baseTree: Tree,
+  oursTree: Tree,
+  theirsTree: Tree,
+): Promise<{ cid: CID; conflicts: string[] }> {
+  const conflicts: string[] = [];
+  const base = await loadIntermediateDeep(env, baseTree);
+  const ours = await loadIntermediateDeep(env, oursTree);
+  const theirs = await loadIntermediateDeep(env, theirsTree);
+  const merged = await threeWayMerge(provider, env, repo, base, ours, theirs, '', conflicts);
+  const cid = await pinIntermediateTree(provider, env, repo, merged);
+  return { cid, conflicts };
+}
+
+/** Fully load a Tree into an IntermediateTree (children recursively loaded). */
+async function loadIntermediateDeep(env: Env, tree: Tree): Promise<IntermediateTree> {
+  const intermediate: IntermediateTree = { entries: new Map(), deletions: new Set() };
+  for (const entry of tree.entries) {
+    if (entry.kind === 'blob') {
+      intermediate.entries.set(entry.name, {
+        kind: 'blob',
+        name: entry.name,
+        cid: entry.cid,
+        size: entry.size ?? 0,
+      });
+    } else {
+      const sub = await fetchJSON<Tree>(env, entry.cid);
+      const children = await loadIntermediateDeep(env, sub);
+      intermediate.entries.set(entry.name, {
+        kind: 'tree',
+        name: entry.name,
+        children,
+        existingCid: entry.cid,
+      });
+    }
+  }
+  return intermediate;
+}
+
+/** Two intermediate entries are equal when they resolve to the same content. */
+function entriesEqual(a?: IntermediateEntry, b?: IntermediateEntry): boolean {
+  if (!a || !b) return !a && !b;
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'blob') return a.cid === (b as Extract<IntermediateEntry, { kind: 'blob' }>).cid;
+  // Both are trees — content is identified by their CID.
+  return a.existingCid === (b as Extract<IntermediateEntry, { kind: 'tree' }>).existingCid;
+}
+
+/** Deep structural equality of two intermediate trees. */
+function intermediateEqual(a: IntermediateTree, b: IntermediateTree): boolean {
+  if (a.entries.size !== b.entries.size) return false;
+  for (const [name, ea] of a.entries) {
+    const eb = b.entries.get(name);
+    if (!eb || ea.kind !== eb.kind) return false;
+    if (ea.kind === 'blob') {
+      const left = ea as Extract<IntermediateEntry, { kind: 'blob' }>;
+      const right = eb as Extract<IntermediateEntry, { kind: 'blob' }>;
+      if (left.cid !== right.cid || left.size !== right.size) return false;
+    } else {
+      const left = ea as Extract<IntermediateEntry, { kind: 'tree' }>;
+      const right = eb as Extract<IntermediateEntry, { kind: 'tree' }>;
+      if (!intermediateEqual(left.children, right.children)) return false;
+    }
+  }
+  return true;
+}
+
+/** Represent an entry for verbatim reuse (trees keep their CID, no children). */
+function carryEntry(e: IntermediateEntry): IntermediateEntry {
+  if (e.kind === 'tree') {
+    return {
+      kind: 'tree',
+      name: e.name,
+      children: { entries: new Map(), deletions: new Set() },
+      existingCid: e.existingCid,
+    };
+  }
+  return e;
+}
+
+/** Recursive three-way merge producing a fully (or reusably) built tree. */
+async function threeWayMerge(
+  provider: StorageProvider,
+  env: Env,
+  repo: GroupId,
+  base: IntermediateTree,
+  ours: IntermediateTree,
+  theirs: IntermediateTree,
+  path: string,
+  conflicts: string[],
+): Promise<IntermediateTree> {
+  const result: IntermediateTree = { entries: new Map(), deletions: new Set() };
+  const names = new Set<string>();
+  for (const side of [base, ours, theirs]) {
+    for (const key of side.entries.keys()) names.add(key);
+  }
+
+  for (const name of names) {
+    const b = base.entries.get(name);
+    const o = ours.entries.get(name);
+    const t = theirs.entries.get(name);
+    const childPath = path ? `${path}/${name}` : name;
+
+    if (entriesEqual(o, t)) {
+      // Both sides agree (same content, or both deleted).
+      if (o) result.entries.set(name, carryEntry(o));
+      continue;
+    }
+    if (entriesEqual(o, b)) {
+      // Ours unchanged — take theirs (includes deletion).
+      if (t) result.entries.set(name, carryEntry(t));
+      continue;
+    }
+    if (entriesEqual(t, b)) {
+      // Theirs unchanged — take ours.
+      if (o) result.entries.set(name, carryEntry(o));
+      continue;
+    }
+
+    // Both sides diverged from base.
+    if (o && t && o.kind === 'tree' && t.kind === 'tree' && b && b.kind === 'tree') {
+      const mergedSub = await threeWayMerge(
+        provider,
+        env,
+        repo,
+        b.children,
+        o.children,
+        t.children,
+        childPath,
+        conflicts,
+      );
+      if (intermediateEqual(mergedSub, b.children)) {
+        // Merging produced the base subtree unchanged — reuse its CID.
+        result.entries.set(name, { kind: 'tree', name, children: { entries: new Map(), deletions: new Set() }, existingCid: b.existingCid });
+      } else {
+        result.entries.set(name, { kind: 'tree', name, children: mergedSub });
+      }
+      continue;
+    }
+
+    // Genuine conflict — record it and resolve in favour of ours (target).
+    conflicts.push(childPath);
+    if (o) result.entries.set(name, carryEntry(o));
+    else if (t) result.entries.set(name, carryEntry(t));
+  }
+
+  return result;
 }
 
 /** Pin a fresh tree (no existing subtrees to merge). */

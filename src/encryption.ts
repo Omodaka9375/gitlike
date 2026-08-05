@@ -13,6 +13,16 @@ import type { Address, GroupId, KeyBundle, KeyBundleEpoch } from './types.js';
 /** AES-GCM initialization vector length in bytes. */
 const IV_LENGTH = 12;
 
+/** GCM authentication tag length in bytes (16). */
+const GCM_TAG_LENGTH = 16;
+
+/**
+ * Stored-ciphertext overhead added by `encrypt()`: the prepended IV plus the
+ * GCM tag. Used to keep the streaming decision consistent between encryption
+ * (keyed on plaintext size) and decryption (keyed on stored/ciphertext size).
+ */
+const GCM_OVERHEAD = IV_LENGTH + GCM_TAG_LENGTH;
+
 /** Streaming chunk size in bytes (1 MB). */
 const CHUNK_SIZE = 1024 * 1024;
 
@@ -423,7 +433,12 @@ export async function encryptFile(repoKey: CryptoKey, file: File): Promise<File>
   const buffer = await file.arrayBuffer();
 
   let encryptedBuffer: ArrayBuffer;
-  if (shouldStream(buffer.byteLength)) {
+  // Decide streaming by the size the *stored* ciphertext will occupy, matching
+  // the decrypt side which re-derives the mode from the ciphertext length.
+  // (plaintext + IV + GCM tag). Without the overhead, a plaintext just under
+  // STREAM_THRESHOLD would be written as a single block but its ciphertext
+  // would exceed the threshold and be mis-decrypted as a stream.
+  if (shouldStream(buffer.byteLength + GCM_OVERHEAD)) {
     // Stream-encrypt large files
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {

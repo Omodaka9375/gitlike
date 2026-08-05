@@ -3,9 +3,7 @@
 // Uses EIP-712 typed data signatures via viem.
 // ---------------------------------------------------------------------------
 
-import { walletClient, connectedAddress } from './wallet.js';
 import type { CID, Commit, Delegation } from './types.js';
-import { verifyTypedData } from 'viem';
 import { CHAIN_ID } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -45,6 +43,8 @@ const DELEGATION_TYPES = {
 
 /** Sign a commit CID with the connected wallet (registration happens server-side). */
 export async function signCommit(cid: CID, commit: Commit): Promise<`0x${string}`> {
+  // Lazy-loaded so importing this module doesn't pull in viem / wallet deps.
+  const { connectedAddress, walletClient } = await import('./wallet.js');
   const address = connectedAddress();
   if (!address) throw new Error('Wallet not connected.');
 
@@ -71,6 +71,7 @@ export async function signCommit(cid: CID, commit: Commit): Promise<`0x${string}
 export async function signDelegation(
   delegation: Omit<Delegation, 'signature'>,
 ): Promise<`0x${string}`> {
+  const { connectedAddress, walletClient } = await import('./wallet.js');
   const address = connectedAddress();
   if (!address) throw new Error('Wallet not connected.');
   if (address.toLowerCase() !== delegation.delegator.toLowerCase()) {
@@ -103,6 +104,7 @@ export async function verifyCommitSignature(
   commit: Commit,
   signature: `0x${string}`,
 ): Promise<boolean> {
+  const { verifyTypedData } = await import('viem');
   return verifyTypedData({
     address: commit.author,
     domain: DOMAIN,
@@ -121,6 +123,7 @@ export async function verifyCommitSignature(
 
 /** Verify a delegation signature. */
 export async function verifyDelegationSignature(delegation: Delegation): Promise<boolean> {
+  const { verifyTypedData } = await import('viem');
   return verifyTypedData({
     address: delegation.delegator,
     domain: DOMAIN,

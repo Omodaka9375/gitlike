@@ -11,9 +11,10 @@ import {
   storeCidSignature,
   storeManifestCid,
   pruneOldSnapshots,
+  findMergeBase,
 } from './ipfs.js';
 import type { Address, GroupId, Tree, Commit, Manifest, PullRequest, Issue } from './ipfs.js';
-import { buildMergedTree, mergeTrees } from './tree-builder.js';
+import { buildMergedTree, mergeTrees3 } from './tree-builder.js';
 import type { StagedFile } from './tree-builder.js';
 import type { Env } from './env.js';
 import { getPlatformSettings } from './platform.js';
@@ -233,10 +234,28 @@ export async function executeMerge(env: Env, input: MergeInput): Promise<MergeRe
   const targetTree = await fetchJSON<Tree>(env, targetCommit.tree);
   const sourceTree = await fetchJSON<Tree>(env, sourceCommit.tree);
 
-  // Detect conflicts: files modified in both branches relative to common ancestor
-  const conflicts = await detectConflicts(env, targetTree, sourceTree);
+  // Determine the merge base (nearest common ancestor) and run a true
+  // three-way merge so deletions are honored and only genuine two-sided
+  // changes are reported as conflicts.
+  const baseCid = await findMergeBase(env, targetCid, sourceCid);
+  let baseTree: Tree = { type: 'tree', entries: [] };
+  if (baseCid) {
+    try {
+      const baseCommit = await fetchJSON<Commit>(env, baseCid);
+      baseTree = await fetchJSON<Tree>(env, baseCommit.tree);
+    } catch {
+      baseTree = { type: 'tree', entries: [] };
+    }
+  }
 
-  const treeCid = await mergeTrees(provider, env, input.groupId, targetTree, sourceTree);
+  const { cid: treeCid, conflicts } = await mergeTrees3(
+    provider,
+    env,
+    input.groupId,
+    baseTree,
+    targetTree,
+    sourceTree,
+  );
 
   const msg = input.message || `Merge ${input.source} into ${input.target}`;
   const commit: Commit = {
@@ -314,37 +333,6 @@ export async function executeMerge(env: Env, input: MergeInput): Promise<MergeRe
     manifestCid: manifestUpload.cid,
     conflicts: conflicts.length > 0 ? conflicts : undefined,
   };
-}
-
-/** Detect files that exist in both trees with different CIDs (potential conflicts). */
-async function detectConflicts(
-  env: Env,
-  treeA: Tree,
-  treeB: Tree,
-  prefix = '',
-): Promise<string[]> {
-  const conflicts: string[] = [];
-  const mapA = new Map(treeA.entries.map((e) => [e.name, e]));
-  const mapB = new Map(treeB.entries.map((e) => [e.name, e]));
-
-  for (const [name, entryA] of mapA) {
-    const entryB = mapB.get(name);
-    if (!entryB) continue;
-    const path = prefix ? `${prefix}/${name}` : name;
-    if (entryA.kind === 'blob' && entryB.kind === 'blob' && entryA.cid !== entryB.cid) {
-      conflicts.push(path);
-    } else if (
-      entryA.kind === 'tree' &&
-      entryB.kind === 'tree' &&
-      entryA.cid !== entryB.cid
-    ) {
-      // Recursively compare subtrees
-      const subA = await fetchJSON<Tree>(env, entryA.cid);
-      const subB = await fetchJSON<Tree>(env, entryB.cid);
-      conflicts.push(...(await detectConflicts(env, subA, subB, path)));
-    }
-  }
-  return conflicts;
 }
 
 // ---------------------------------------------------------------------------

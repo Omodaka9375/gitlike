@@ -342,6 +342,46 @@ export async function storeManifestCid(
 /** Entry in a commit walk. */
 export type CommitEntry = { cid: CID; commit: Commit };
 
+/**
+ * Find the merge base (nearest common ancestor) of two commits by BFS over
+ * the full parent DAG (including merge second parents).
+ * Returns null when the branches share no common ancestor.
+ */
+export async function findMergeBase(env: Env, aCid: CID, bCid: CID): Promise<CID | null> {
+  if (aCid === bCid) return aCid;
+
+  const seenA = new Set<string>([aCid]);
+  const seenB = new Set<string>([bCid]);
+  const queueA: CID[] = [aCid];
+  const queueB: CID[] = [bCid];
+
+  while (queueA.length > 0 && queueB.length > 0) {
+    const a = queueA.shift() as CID;
+    const aCommit: Commit = await fetchJSON<Commit>(env, a);
+    for (const p of aCommit.parents) {
+      if (seenB.has(p)) return p;
+      if (!seenA.has(p)) {
+        seenA.add(p);
+        queueA.push(p);
+      }
+    }
+
+    const b = queueB.shift() as CID;
+    const bCommit: Commit = await fetchJSON<Commit>(env, b);
+    for (const p of bCommit.parents) {
+      if (seenA.has(p)) return p;
+      if (!seenB.has(p)) {
+        seenB.add(p);
+        queueB.push(p);
+      }
+    }
+  }
+
+  // If one side exhausted without a match, fall back to any node seen by both.
+  for (const c of seenA) if (seenB.has(c)) return c;
+  return null;
+}
+
 /** Walk commit history (first-parent only; merge second parents are not traversed). */
 export async function walkCommitHistory(
   env: Env,
